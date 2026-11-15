@@ -1,4 +1,25 @@
 allow_embedding: false
+db_schema:
+  displays:
+    client: none
+    columns:
+    - admin_ui: {}
+      name: key_hash
+      type: string
+    - admin_ui: {}
+      name: message
+      type: string
+    - admin_ui: {}
+      name: revision
+      type: number
+    - admin_ui: {}
+      name: displayed_revision
+      type: number
+    - admin_ui: {}
+      name: last_seen
+      type: datetime
+    server: full
+    title: Displays
 name: Minimal Theme 1
 package_name: Minimal_Theme_1
 runtime_options:

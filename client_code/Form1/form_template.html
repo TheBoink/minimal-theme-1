@@ -1,9 +1,36 @@
-<anvil-form layout="Minimal_Theme_1.Layouts.BaseLayout">
-    <anvil-block slot="actions"></anvil-block>
-    <anvil-block slot="content">
-        <anvil-component type="ColumnPanel" name="column_panel_1" prop:role="card" designer:placeholder="Add components here"></anvil-component>
-    </anvil-block>
-    <anvil-block slot="title">
-        <anvil-component type="Label" name="label_1" prop:role="h1" prop:text="Home"></anvil-component>
-    </anvil-block>
-</anvil-form>
+<div class="display-app">
+  <header class="display-header"><div class="display-wordmark">◈ &nbsp; PICO / POST</div><span>SMALL SCREEN. BIG MESSAGE.</span></header>
+  <main class="display-main">
+    <p class="display-kicker">YOUR DESK, CONNECTED</p>
+    <h1>A little screen.<br>A message from you.</h1>
+    <p class="display-intro">Send a thought, a reminder, or a hello to your Wi-Fi connected LCD.</p>
+    <div class="display-grid">
+      <section class="display-compose">
+        <div class="display-section-title"><span>01 / COMPOSE</span><span>240 CHAR MAX</span></div>
+        <h2>What’s on your mind?</h2>
+        <anvil-component type="TextArea" name="message_box" prop:placeholder="Hello, little world." prop:text="Hello, little world."></anvil-component>
+        <anvil-component type="Label" name="counter" prop:text="20 / 240 characters"></anvil-component>
+        <anvil-component type="Button" name="send_button" prop:text="Send to display →"></anvil-component>
+        <anvil-component type="Label" name="status" prop:text="Ready to pair · No device connected"></anvil-component>
+        <anvil-component type="Button" name="refresh_button" prop:text="Check connection & delivery" prop:role="secondary-button"></anvil-component>
+        <p class="display-note">The latest message replaces the previous one. Plain English characters and line breaks supported.</p>
+      </section>
+      <section class="display-preview-panel">
+        <div class="display-section-title"><span>02 / PREVIEW</span><span>1.3-INCH LCD</span></div>
+        <div class="display-board"><div class="display-screw screw-a"></div><div class="display-screw screw-b"></div><div class="display-screen"><span class="display-screen-tag">MESSAGE</span><anvil-component type="Label" name="preview"></anvil-component><span class="display-cursor">_</span></div><div class="display-board-caption">PICO 2 W &nbsp; / &nbsp; WAVESHARE</div></div>
+        <p class="display-preview-caption">A preview of your message.<br>Actual text layout depends on device firmware.</p>
+      </section>
+    </div>
+    <section class="display-setup">
+      <div><p class="display-kicker">03 / CONNECT YOUR PICO</p><h2>Make the connection.</h2><p>Create a pairing key, or paste one you saved earlier. Keep it private: it controls this display. Save it before closing this page.</p></div>
+      <div>
+        <anvil-component type="Button" name="pair_button" prop:text="Create a new display" prop:role="secondary-button"></anvil-component>
+        <anvil-component type="TextBox" name="key_box" prop:placeholder="Your private pairing key"></anvil-component>
+        <p class="display-note">Device polling endpoint</p>
+        <anvil-component type="Label" name="endpoint"></anvil-component>
+        <p class="display-note">Firmware must poll this URL with an Authorization: Bearer header and confirm successful drawing at /device/ack. Tell me your exact LCD model, wiring, and firmware so I can prepare the matching Pico code.</p>
+      </div>
+    </section>
+    <footer class="display-footer"><span>MADE FOR THE LITTLE THINGS.</span><span>WEB → WI-FI → YOUR DISPLAY</span></footer>
+  </main>
+</div>
