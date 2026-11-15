@@ -6,6 +6,7 @@ import os
 import binascii
 import gc
 import time
+import ntptime
 import network
 import requests
 from machine import Pin, PWM
@@ -49,10 +50,45 @@ def fetch(method, url, payload=None):
         response.close()
 
 
+class DisplayClock:
+    def __init__(self):
+        self.synced = False
+        self.next_sync = None
+
+    def sync(self):
+        now = time.ticks_ms()
+        if self.next_sync is not None and time.ticks_diff(now, self.next_sync) < 0:
+            return
+        try:
+            ntptime.settime()
+        except OSError:
+            # NTP may be blocked or temporarily unavailable; keep app delivery working.
+            self.next_sync = time.ticks_add(time.ticks_ms(), 60000)
+            print('Clock sync unavailable; retrying in one minute.')
+        else:
+            self.synced = True
+            self.next_sync = time.ticks_add(time.ticks_ms(), 3600000)
+
+    def label(self):
+        if not self.synced:
+            return 'UTC --:--:-- (syncing)'
+        now = time.gmtime()
+        return 'UTC %02d:%02d:%02d' % (now[3], now[4], now[5])
+
+
+clock = DisplayClock()
+
+
+def clock_indicator(lcd):
+    lcd.fill_rect(12, 28, 216, 10, 0)
+    lcd.text(clock.label(), 12, 28, 0xffff)
+
+
 def wifi_indicator(lcd, status):
     # Reserve the right side of the header; never cover message text.
     lcd.fill_rect(140, 6, 100, 16, 0)
     lcd.text('WIFI:' + status, 140, 10, 0xffff)
+    clock_indicator(lcd)
     lcd.show()
 
 
@@ -62,9 +98,10 @@ def wait_with_wifi(lcd, wlan, seconds):
     previous = None
     while time.ticks_diff(time.ticks_ms(), start) < seconds * 1000:
         status = 'ON' if wlan.isconnected() else 'OFF'
-        if status != previous:
+        state = (status, clock.label())
+        if state != previous:
             wifi_indicator(lcd, status)
-            previous = status
+            previous = state
         time.sleep_ms(250)
 
 
@@ -72,8 +109,8 @@ def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
     lcd.fill(0)
     lcd.text('PICO POST', 12, 10, 0xffff)
     lcd.hline(12, 25, 216, 0xffff)
-    for index, line in enumerate(lines[page * 23:(page + 1) * 23]):
-        lcd.text(line, 12, 36 + index * 8, 0xffff)
+    for index, line in enumerate(lines[page * 22:(page + 1) * 22]):
+        lcd.text(line, 12, 44 + index * 8, 0xffff)
     lcd.text('%d / %d' % (page + 1, total), 12, 226, 0xffff)
     if app_status:
         lcd.text(app_status, 100, 226, 0xffff)
@@ -91,6 +128,7 @@ def connect(wlan, on_status):
     while not wlan.isconnected():
         if wlan.status() < 0 or time.ticks_diff(time.ticks_ms(), start) > 20000:
             raise OSError('Wi-Fi connection failed')
+        on_status('JOIN')
         time.sleep_ms(250)
     on_status('ON')
 
@@ -136,6 +174,8 @@ def main():
     while True:
         try:
             connect(wlan, lambda status: wifi_indicator(lcd, status))
+            clock.sync()
+            wifi_indicator(lcd, 'ON')
             if pending_event is None and button.total > sent_presses:
                 pending_total = sent_presses + 1
                 pending_event = {'button': 'A', 'count': pending_total - sent_presses,
@@ -157,7 +197,7 @@ def main():
             lines = wrap_text(data['text']) if revision else ['Waiting for a message...']
             current_revision = revision
             page = 0
-        pages = max(1, (len(lines) + 22) // 23)
+        pages = max(1, (len(lines) + 21) // 22)
         draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF')
         # Let the final page be visible before confirming delivery.
         wait_with_wifi(lcd, wlan, POLL_SECONDS)

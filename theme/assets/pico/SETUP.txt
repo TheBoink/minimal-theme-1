@@ -83,3 +83,17 @@ The indicator checks the link every 250 ms during page waits. Blocking network
 requests can delay updates until the request returns or times out.
 Test by turning off the access point, then restoring it; expect OFF/JOIN,
 then ON and resumed message/button delivery. No LCD driver change is needed.
+
+LCD CLOCK
+The updated main.py displays UTC HH:MM:SS below the header and Wi-Fi indicator.
+It syncs the Pico RTC using ntptime after Wi-Fi connects, then every hour.
+Until the first successful sync, it shows UTC --:--:-- (syncing). Failed syncs
+retry after a minute without stopping messages or button delivery. Once synced,
+the RTC keeps running during Wi-Fi outages, until power is lost or the board
+resets. UTC has no daylight-saving adjustment.
+If importing ntptime fails, install ntptime onto the Pico using Thonny's package
+manager (or mip.install('ntptime') while connected to Wi-Fi).
+The clock refreshes during page waits and reconnection; blocking HTTP/NTP
+operations may briefly pause the visible seconds. Pages now hold 22 lines to
+reserve clock space. Install this main.py with your existing four configuration
+values; keep lcd_driver.py unchanged.
