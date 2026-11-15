@@ -29,7 +29,8 @@ def display_status(key):
     seen = row['last_seen']
     return {'ok': True, 'online': bool(seen and seen > datetime.now(timezone.utc) - timedelta(seconds=20)),
             'message': row['message'], 'revision': row['revision'],
-            'displayed_revision': row['displayed_revision']}
+            'displayed_revision': row['displayed_revision'],
+            'button_count': row['button_count'] or 0, 'button_at': row['button_at']}
 
 
 @anvil.server.callable
@@ -70,4 +71,22 @@ def device_ack(**params):
     if revision < 0 or revision > row['revision']:
         return anvil.server.HttpResponse(400, 'Invalid revision')
     row.update(displayed_revision=max(row['displayed_revision'], revision), last_seen=datetime.now(timezone.utc))
+    return anvil.server.HttpResponse(200, 'OK')
+
+
+@anvil.server.route('/device/button', methods=['POST'])
+@anvil.tables.in_transaction
+def device_button(**params):
+    row = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
+    if row is None:
+        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    data = anvil.server.request.body_json
+    if (not isinstance(data, dict) or data.get('button') != 'A'
+            or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000000
+            or not isinstance(data.get('event_id'), str) or not 1 <= len(data['event_id']) <= 80):
+        return anvil.server.HttpResponse(400, 'Invalid button event')
+    if row['button_event_id'] != data['event_id']:
+        row.update(button_count=(row['button_count'] or 0) + data['count'],
+                   button_at=datetime.now(timezone.utc), button_event_id=data['event_id'],
+                   last_seen=datetime.now(timezone.utc))
     return anvil.server.HttpResponse(200, 'OK')

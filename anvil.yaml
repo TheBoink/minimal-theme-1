@@ -18,6 +18,15 @@ db_schema:
     - admin_ui: {}
       name: last_seen
       type: datetime
+    - admin_ui: {}
+      name: button_count
+      type: number
+    - admin_ui: {}
+      name: button_at
+      type: datetime
+    - admin_ui: {}
+      name: button_event_id
+      type: string
     server: full
     title: Displays
 name: Minimal Theme 1

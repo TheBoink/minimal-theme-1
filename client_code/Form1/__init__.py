@@ -49,3 +49,22 @@ class Form1(Form1Template):
         if result['revision']:
             delivery = 'Display confirmed' if result['displayed_revision'] == result['revision'] else 'Latest message queued'
         self.status.text = connection + ' · ' + delivery
+
+
+    @handle('button_timer', 'tick')
+    def update_button_status(self, **event_args):
+        key = self.key_box.text.strip()
+        if not key:
+            self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
+            return
+        self.button_timer.interval = 0
+        try:
+            result = anvil.server.call('display_status', key)
+            if not result['ok']:
+                self.button_status.text = result['message']
+            elif result['button_count']:
+                self.button_status.text = 'Button A was pressed! · ' + str(int(result['button_count'])) + ' presses · Last: ' + result['button_at'].strftime('%d %b %H:%M:%S')
+            else:
+                self.button_status.text = 'Waiting for button A…'
+        finally:
+            self.button_timer.interval = 2

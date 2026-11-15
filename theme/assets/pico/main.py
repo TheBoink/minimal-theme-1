@@ -2,6 +2,8 @@
 Install the official Waveshare driver as lcd_driver.py alongside this file.
 Edit the four placeholders ON YOUR PICO, never in the shared app assets.
 """
+import os
+import binascii
 import gc
 import time
 import network
@@ -70,12 +72,33 @@ def connect(wlan):
         time.sleep_ms(250)
 
 
+class ButtonA:
+    """Capture falling edges even while Wi-Fi/HTTP is blocking."""
+    def __init__(self):
+        self.total = 0
+        self.last_press = time.ticks_ms()
+        self.pin = Pin(15, Pin.IN, Pin.PULL_UP)
+        self.pin.irq(trigger=Pin.IRQ_FALLING, handler=self.pressed)
+
+    def pressed(self, pin):
+        now = time.ticks_ms()
+        if time.ticks_diff(now, self.last_press) >= 200:
+            self.last_press = now
+            self.total += 1
+
+
 def main():
     if PAIRING_KEY == 'YOUR_PAIRING_KEY' or WIFI_SSID == 'YOUR_WIFI_NAME':
         raise RuntimeError('Fill in the four configuration values in main.py on your Pico.')
     if not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
         raise RuntimeError('Copy the full HTTPS Device polling endpoint from the app.')
     ack_url = MESSAGE_URL[:-len('/message')] + '/ack'
+    button_url = MESSAGE_URL[:-len('/message')] + '/button'
+    button = ButtonA()
+    boot_id = binascii.hexlify(os.urandom(8)).decode()
+    sent_presses = 0
+    pending_event = None
+    pending_total = 0
     backlight = PWM(Pin(13))
     backlight.freq(1000)
     backlight.duty_u16(32768)
@@ -89,6 +112,14 @@ def main():
     while True:
         try:
             connect(wlan)
+            if pending_event is None and button.total > sent_presses:
+                pending_total = button.total
+                pending_event = {'button': 'A', 'count': pending_total - sent_presses,
+                                 'event_id': boot_id + '-' + str(pending_total)}
+            if pending_event is not None:
+                fetch('POST', button_url, pending_event)
+                sent_presses = pending_total
+                pending_event = None
             data = fetch('GET', MESSAGE_URL)
         except OSError:
             # Network outages are expected; preserve the last message and retry.

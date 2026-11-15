@@ -50,3 +50,14 @@ Troubleshooting:
 - Blank LCD: verify the model, orientation, headers and driver/pins first.
 
 Physical LCD/Wi-Fi operation still requires testing on your actual hardware.
+
+BUTTON A UPDATE
+Replace main.py on your Pico with the updated template, restoring your four
+local configuration values. Keep lcd_driver.py. Restart the Pico.
+Press A (GPIO 15, active low). With the same pairing key entered in the app,
+"From your Pico" updates automatically, usually within a few seconds.
+Holding A counts once; presses less than 200 ms apart are debounced.
+Presses during network failures are retained in RAM and retried; restarting
+or powering off the Pico discards any unsent presses. Do not run two Pico
+receivers with the same pairing key. The latest received event remains visible
+after reopening the app and entering that key.
