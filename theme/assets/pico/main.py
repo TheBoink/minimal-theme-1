@@ -113,7 +113,7 @@ def main():
         try:
             connect(wlan)
             if pending_event is None and button.total > sent_presses:
-                pending_total = button.total
+                pending_total = sent_presses + 1
                 pending_event = {'button': 'A', 'count': pending_total - sent_presses,
                                  'event_id': boot_id + '-' + str(pending_total)}
             if pending_event is not None:

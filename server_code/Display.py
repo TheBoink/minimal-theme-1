@@ -82,11 +82,17 @@ def device_button(**params):
         return anvil.server.HttpResponse(401, 'Invalid pairing key')
     data = anvil.server.request.body_json
     if (not isinstance(data, dict) or data.get('button') != 'A'
-            or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000000
+            or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000
             or not isinstance(data.get('event_id'), str) or not 1 <= len(data['event_id']) <= 80):
         return anvil.server.HttpResponse(400, 'Invalid button event')
-    if row['button_event_id'] != data['event_id']:
+    # A permanent event lookup also protects against old retries arriving later.
+    if app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1) is None:
+        received_at = datetime.now(timezone.utc)
+        for number in range(1, data['count'] + 1):
+            app_tables.button_presses.add_row(
+                display=row, button='A', received_at=received_at,
+                event_id=data['event_id'], press_in_event=number)
         row.update(button_count=(row['button_count'] or 0) + data['count'],
-                   button_at=datetime.now(timezone.utc), button_event_id=data['event_id'],
-                   last_seen=datetime.now(timezone.utc))
+                   button_at=received_at, button_event_id=data['event_id'],
+                   last_seen=received_at)
     return anvil.server.HttpResponse(200, 'OK')

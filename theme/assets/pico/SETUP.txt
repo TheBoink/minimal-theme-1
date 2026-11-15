@@ -61,3 +61,12 @@ Presses during network failures are retained in RAM and retried; restarting
 or powering off the Pico discards any unsent presses. Do not run two Pico
 receivers with the same pairing key. The latest received event remains visible
 after reopening the app and entering that key.
+
+DATABASE PRESS HISTORY
+Each received A press is stored in the Button Presses Data Table, linked to
+its display, with received_at in UTC. This is server receipt time, not the
+physical press time. Older firmware batches share a receipt timestamp.
+The updated main.py sends queued presses separately. It retries the same
+event ID after a network failure, so retries do not create duplicate rows.
+Queued presses remain in RAM only until sent; a power loss discards them.
+Historical individual presses from before this update cannot be reconstructed.
