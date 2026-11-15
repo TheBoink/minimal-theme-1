@@ -4,7 +4,7 @@ import hashlib
 import secrets
 import anvil.server
 import anvil.tables
-from anvil.tables import app_tables
+from anvil.tables import app_tables, query as q
 
 
 def _device(key):
@@ -96,3 +96,22 @@ def device_button(**params):
                    button_at=received_at, button_event_id=data['event_id'],
                    last_seen=received_at)
     return anvil.server.HttpResponse(200, 'OK')
+
+
+@anvil.server.callable
+def ten_minute_button_presses(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    now = datetime.now(timezone.utc)
+    current_interval = now.replace(minute=(now.minute // 10) * 10, second=0, microsecond=0)
+    start = current_interval - timedelta(minutes=1430)
+    end = current_interval + timedelta(minutes=10)
+    counts = [0] * 144
+    for press in app_tables.button_presses.search(
+            q.fetch_only('received_at'), display=display, button='A',
+            received_at=q.all_of(q.greater_than_or_equal_to(start), q.less_than(end))):
+        index = int((press['received_at'] - start).total_seconds() // 600)
+        counts[index] += 1
+    return {'ok': True, 'intervals': [(start + timedelta(minutes=10 * i)).strftime('%d %b %H:%M') for i in range(144)],
+            'counts': counts, 'total': sum(counts)}
