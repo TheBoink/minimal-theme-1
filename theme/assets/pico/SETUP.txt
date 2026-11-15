@@ -70,3 +70,16 @@ The updated main.py sends queued presses separately. It retries the same
 event ID after a network failure, so retries do not create duplicate rows.
 Queued presses remain in RAM only until sent; a power loss discards them.
 Historical individual presses from before this update cannot be reconstructed.
+
+LCD WI-FI INDICATOR
+Install the updated main.py, restoring your four local configuration values.
+The top-right LCD header shows WIFI:WAIT during startup, WIFI:JOIN while
+connecting/reconnecting, WIFI:ON when connected to the access point with an IP
+address, and WIFI:OFF after a connection failure or loss. Message pages and
+queued button presses are preserved during reconnection attempts.
+APP: RETRY in the footer means an app/network request failed; Wi-Fi can still
+be ON if the access point is connected but internet/app access is unavailable.
+The indicator checks the link every 250 ms during page waits. Blocking network
+requests can delay updates until the request returns or times out.
+Test by turning off the access point, then restoring it; expect OFF/JOIN,
+then ON and resumed message/button delivery. No LCD driver change is needed.

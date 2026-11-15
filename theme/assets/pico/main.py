@@ -49,19 +49,41 @@ def fetch(method, url, payload=None):
         response.close()
 
 
-def draw(lcd, lines, page, total):
+def wifi_indicator(lcd, status):
+    # Reserve the right side of the header; never cover message text.
+    lcd.fill_rect(140, 6, 100, 16, 0)
+    lcd.text('WIFI:' + status, 140, 10, 0xffff)
+    lcd.show()
+
+
+def wait_with_wifi(lcd, wlan, seconds):
+    # Refresh the link indicator while a message page is being displayed.
+    start = time.ticks_ms()
+    previous = None
+    while time.ticks_diff(time.ticks_ms(), start) < seconds * 1000:
+        status = 'ON' if wlan.isconnected() else 'OFF'
+        if status != previous:
+            wifi_indicator(lcd, status)
+            previous = status
+        time.sleep_ms(250)
+
+
+def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
     lcd.fill(0)
     lcd.text('PICO POST', 12, 10, 0xffff)
     lcd.hline(12, 25, 216, 0xffff)
     for index, line in enumerate(lines[page * 23:(page + 1) * 23]):
         lcd.text(line, 12, 36 + index * 8, 0xffff)
     lcd.text('%d / %d' % (page + 1, total), 12, 226, 0xffff)
-    lcd.show()
+    if app_status:
+        lcd.text(app_status, 100, 226, 0xffff)
+    wifi_indicator(lcd, wifi_status)
 
 
-def connect(wlan):
+def connect(wlan, on_status):
     if wlan.isconnected():
         return
+    on_status('JOIN')
     wlan.active(True)
     wlan.disconnect()
     wlan.connect(WIFI_SSID, WIFI_PASSWORD)
@@ -70,6 +92,7 @@ def connect(wlan):
         if wlan.status() < 0 or time.ticks_diff(time.ticks_ms(), start) > 20000:
             raise OSError('Wi-Fi connection failed')
         time.sleep_ms(250)
+    on_status('ON')
 
 
 class ButtonA:
@@ -109,9 +132,10 @@ def main():
     acknowledged_revision = None
     lines = ['Waiting for a message...']
     page = 0
+    pages = 1
     while True:
         try:
-            connect(wlan)
+            connect(wlan, lambda status: wifi_indicator(lcd, status))
             if pending_event is None and button.total > sent_presses:
                 pending_total = sent_presses + 1
                 pending_event = {'button': 'A', 'count': pending_total - sent_presses,
@@ -124,7 +148,8 @@ def main():
         except OSError:
             # Network outages are expected; preserve the last message and retry.
             print('Network unavailable; retrying in 3 seconds.')
-            time.sleep(POLL_SECONDS)
+            draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
+            wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()
             continue
         revision = data['revision']
@@ -133,14 +158,15 @@ def main():
             current_revision = revision
             page = 0
         pages = max(1, (len(lines) + 22) // 23)
-        draw(lcd, lines, page, pages)
+        draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF')
         # Let the final page be visible before confirming delivery.
-        time.sleep(POLL_SECONDS)
+        wait_with_wifi(lcd, wlan, POLL_SECONDS)
         if page == pages - 1 and acknowledged_revision != revision:
             try:
                 fetch('POST', ack_url, {'revision': revision})
             except OSError:
                 print('Acknowledgement interrupted; will retry.')
+                draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
             else:
                 acknowledged_revision = revision
         page = (page + 1) % pages
