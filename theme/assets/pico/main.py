@@ -9,7 +9,7 @@ import time
 import ntptime
 import network
 import requests
-from machine import Pin, PWM
+from machine import Pin, PWM, WDT
 from lcd_driver import LCD_1inch3
 
 WIFI_SSID = 'YOUR_WIFI_NAME'
@@ -18,6 +18,15 @@ WIFI_PASSWORD = 'YOUR_WIFI_PASSWORD'
 MESSAGE_URL = 'https://YOUR_APP.anvil.app/device/message'
 PAIRING_KEY = 'YOUR_PAIRING_KEY'
 POLL_SECONDS = 3
+WATCHDOG_TIMEOUT_MS = 8000
+HTTP_TIMEOUT_SECONDS = 3
+watchdog = None
+
+
+def feed_watchdog():
+    # Never feed from an IRQ or background timer: stalled code must reset.
+    if watchdog is not None:
+        watchdog.feed()
 
 
 def wrap_text(text, width=27):
@@ -37,9 +46,10 @@ def wrap_text(text, width=27):
 
 
 def fetch(method, url, payload=None):
+    feed_watchdog()
     response = requests.request(method, url,
                                 headers={'Authorization': 'Bearer ' + PAIRING_KEY},
-                                json=payload, timeout=10)
+                                json=payload, timeout=HTTP_TIMEOUT_SECONDS)
     try:
         if response.status_code == 401:
             raise RuntimeError('Pairing key rejected. Check PAIRING_KEY.')
@@ -48,6 +58,7 @@ def fetch(method, url, payload=None):
         return response.json() if method == 'GET' else None
     finally:
         response.close()
+        feed_watchdog()
 
 
 class DisplayClock:
@@ -59,6 +70,7 @@ class DisplayClock:
         now = time.ticks_ms()
         if self.next_sync is not None and time.ticks_diff(now, self.next_sync) < 0:
             return
+        feed_watchdog()
         try:
             ntptime.settime()
         except OSError:
@@ -68,6 +80,7 @@ class DisplayClock:
         else:
             self.synced = True
             self.next_sync = time.ticks_add(time.ticks_ms(), 3600000)
+        feed_watchdog()
 
     def label(self):
         if not self.synced:
@@ -102,6 +115,7 @@ def wait_with_wifi(lcd, wlan, seconds):
         if state != previous:
             wifi_indicator(lcd, status)
             previous = state
+        feed_watchdog()
         time.sleep_ms(250)
 
 
@@ -118,6 +132,7 @@ def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
 
 
 def connect(wlan, on_status):
+    feed_watchdog()
     if wlan.isconnected():
         return
     on_status('JOIN')
@@ -129,6 +144,7 @@ def connect(wlan, on_status):
         if wlan.status() < 0 or time.ticks_diff(time.ticks_ms(), start) > 20000:
             raise OSError('Wi-Fi connection failed')
         on_status('JOIN')
+        feed_watchdog()
         time.sleep_ms(250)
     on_status('ON')
 
@@ -149,10 +165,16 @@ class ButtonA:
 
 
 def main():
+    global watchdog
     if PAIRING_KEY == 'YOUR_PAIRING_KEY' or WIFI_SSID == 'YOUR_WIFI_NAME':
         raise RuntimeError('Fill in the four configuration values in main.py on your Pico.')
     if not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
         raise RuntimeError('Copy the full HTTPS Device polling endpoint from the app.')
+    print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
+    time.sleep(5)
+    watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
+    feed_watchdog()
+    ntptime.timeout = 1
     ack_url = MESSAGE_URL[:-len('/message')] + '/ack'
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
     button = ButtonA()
@@ -164,6 +186,7 @@ def main():
     backlight.freq(1000)
     backlight.duty_u16(32768)
     lcd = LCD_1inch3()
+    feed_watchdog()
     draw(lcd, ['Connecting to Wi-Fi...'], 0, 1)
     wlan = network.WLAN(network.STA_IF)
     current_revision = None
@@ -172,6 +195,7 @@ def main():
     page = 0
     pages = 1
     while True:
+        feed_watchdog()
         try:
             connect(wlan, lambda status: wifi_indicator(lcd, status))
             clock.sync()

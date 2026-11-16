@@ -97,3 +97,23 @@ The clock refreshes during page waits and reconnection; blocking HTTP/NTP
 operations may briefly pause the visible seconds. Pages now hold 22 lines to
 reserve clock space. Install this main.py with your existing four configuration
 values; keep lcd_driver.py unchanged.
+
+WATCHDOG RECOVERY
+The updated main.py enables the hardware watchdog with an 8000 ms timeout.
+If Python execution stalls and stops feeding it, the Pico restarts automatically.
+The saved main.py runs again on reboot and reconnects. Feeds happen in the main
+code and bounded wait loops, never from button interrupts or background timers.
+HTTP socket timeout is now 3 seconds; NTP timeout is 1 second. A network/DNS/TLS
+operation that remains blocked beyond the watchdog interval will cause a reset.
+Ordinary Wi-Fi connection attempts and retry waits feed the watchdog normally.
+
+Install this main.py with your existing four configuration values. Keep the LCD
+driver unchanged. Startup waits 5 seconds before arming the watchdog, giving you
+time to press Ctrl+C in Thonny if you need to edit or diagnose the device.
+Once armed, the hardware watchdog cannot be stopped until a hardware reset.
+After interrupting running code, reset and interrupt during the startup delay.
+
+A watchdog reset loses button presses still queued only in RAM. Already saved
+database rows remain safe. This recovery does not identify or fix the underlying
+cause of the reported five-minute hang. For verification, run for longer than
+five minutes and confirm time, messages and button delivery continue working.
