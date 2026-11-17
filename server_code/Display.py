@@ -1,5 +1,6 @@
 """Single-display mailbox. Pairing keys authorize both controller and device."""
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import hashlib
 import secrets
 import anvil.server
@@ -47,17 +48,22 @@ def send_message(key, message):
     return {'ok': True}
 
 
+AMSTERDAM = ZoneInfo("Europe/Amsterdam")
+
+
 def _daily_activity(display, now=None):
     now = now if now is not None else datetime.now(timezone.utc)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_now = now.astimezone(AMSTERDAM)
+    start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     oldest = start - timedelta(days=2)
     counts = [[0] * 12 for _ in range(3)]
     for press in app_tables.button_presses.search(
             q.fetch_only('received_at'), display=display, button='A',
             received_at=q.all_of(q.greater_than_or_equal_to(oldest),
                                 q.less_than(start + timedelta(days=1)))):
-        seconds = int((press['received_at'] - oldest).total_seconds())
-        counts[seconds // 86400][(seconds % 86400) // 7200] += 1
+        local = press['received_at'].astimezone(AMSTERDAM)
+        day_index = (local.date() - oldest.date()).days
+        counts[day_index][local.hour // 2] += 1
     months = ('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
               'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC')
     days = []
@@ -76,7 +82,11 @@ def device_message(**params):
         return anvil.server.HttpResponse(401, 'Invalid pairing key')
     row['last_seen'] = datetime.now(timezone.utc)
     import json
-    return anvil.server.HttpResponse(200, json.dumps({'text': row['message'], 'revision': row['revision'],
+    local_now = datetime.now(AMSTERDAM)
+    offset = local_now.utcoffset()
+    assert offset is not None
+    return anvil.server.HttpResponse(200, json.dumps({'utc_offset': int(offset.total_seconds()),
+                                                      'timezone': local_now.tzname(), 'text': row['message'], 'revision': row['revision'],
                                                       'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 

@@ -127,10 +127,11 @@ inside third-party libraries retain their original messages.
 Install this updated main.py with your four existing local configuration values.
 
 THREE-DAY TWO-HOUR ACTIVITY ROWS
-The LCD displays three rows: today, yesterday and the day before, in UTC.
+The LCD displays three rows, top to bottom: the day before yesterday, yesterday,
+and today, using Amsterdam local time.
 Each row has a double-size date such as 11 NOV followed by 12 boxes. From left to
 right these represent 00:00–01:59, 02:00–03:59, through 22:00–23:59 UTC.
-A filled box means at least one recorded A press; an outlined box means none.
+Every box is filled; its color indicates the recorded A-press count (see below).
 The date and history load from the app database on each successful message poll,
 survive Pico restarts, and switch to the new day after midnight UTC. While
 offline the last fetched date/history remain visible; before the first fetch
@@ -140,7 +141,19 @@ Install the updated main.py and restore your four local configuration values.
 The existing lcd_driver.py stays unchanged. Message pages now hold 15 lines to leave room for the three activity rows.
 
 ACTIVITY COLORS
-Each two-hour box uses its saved A-press count: 0 = white outline, 1–9 = light
-green, 10–19 = green, 20 or more = dark green. Applies to all three daily rows.
+Each two-hour box uses its saved A-press count: 0 = light green, 1–9 = yellow,
+10–19 = orange, 20 or more = red. Applies to all three daily rows.
 Install the updated main.py with your existing four connection settings. The
 server now returns counts alongside occupied slots; old firmware remains usable.
+
+AMSTERDAM LOCAL TIME
+The LCD clock and three activity dates/rows now use Europe/Amsterdam time.
+The app supplies CET (UTC+1) or CEST (UTC+2) on each successful message poll.
+The Pico RTC and diagnostic error timestamps remain UTC. Until the first app
+response the clock displays UTC. During an outage it retains the last received
+offset; a summer/winter-time transition is picked up when app polling resumes.
+Two-hour activity slots follow local wall time. On the autumn transition, both
+occurrences of 02:00–02:59 count in the same 02:00–03:59 box. On the spring
+transition the missing hour has no presses. Database timestamps stay unchanged.
+The browser's 10-minute chart remains explicitly labelled UTC.
+Install updated main.py with your existing connection settings; keep the driver.

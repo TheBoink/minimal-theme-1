@@ -77,6 +77,8 @@ def fetch(method, url, payload=None):
 class DisplayClock:
     def __init__(self):
         self.synced = False
+        self.utc_offset = 0
+        self.timezone = 'UTC'
         self.next_sync = None
 
     def sync(self):
@@ -98,8 +100,8 @@ class DisplayClock:
     def label(self):
         if not self.synced:
             return 'UTC --:--:-- (syncing)'
-        now = time.gmtime()
-        return 'UTC %02d:%02d:%02d' % (now[3], now[4], now[5])
+        now = time.gmtime(time.time() + self.utc_offset)
+        return '%s %02d:%02d:%02d' % (self.timezone, now[3], now[4], now[5])
 
 
 clock = DisplayClock()
@@ -147,9 +149,11 @@ def large_text(lcd, text, x, y):
 def activity_color(count):
     """RGB565 byte order for the Waveshare framebuffer sent directly over SPI."""
     if count >= 20:
-        red, green, blue = 0, 96, 0
+        red, green, blue = 255, 0, 0
     elif count >= 10:
-        red, green, blue = 0, 192, 0
+        red, green, blue = 255, 165, 0
+    elif count >= 1:
+        red, green, blue = 255, 255, 0
     else:
         red, green, blue = 144, 238, 144
     rgb565 = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
@@ -157,20 +161,18 @@ def activity_color(count):
 
 
 def draw_activity(lcd):
-    """Today and the previous two days, each with 12 two-hour boxes."""
+    """Oldest day first, today last; each with 12 two-hour boxes."""
     if activity is None:
         lcd.text('Activity: syncing...', 4, 44, 0xffff)
         return
-    for row, day in enumerate(activity.get('days', [activity])):
+    for row, day in enumerate(activity.get('days', [activity])[::-1]):
         y = 42 + row * 20
         large_text(lcd, day['date'], 4, y)
         counts = day.get('counts')
         for index, occupied in enumerate(day['slots']):
             x = 104 + index * 11
-            if occupied:
-                lcd.fill_rect(x, y, 9, 16, activity_color(counts[index] if counts is not None else 1))
-            else:
-                lcd.rect(x, y, 9, 16, 0xffff)
+            count = counts[index] if counts is not None else int(occupied)
+            lcd.fill_rect(x, y, 9, 16, activity_color(count))
 
 
 def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
@@ -271,6 +273,8 @@ def main():
             wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()
             continue
+        clock.utc_offset = data.get('utc_offset', 0)
+        clock.timezone = data.get('timezone', 'UTC')
         activity = data.get('activity')
         revision = data['revision']
         if revision != current_revision:
