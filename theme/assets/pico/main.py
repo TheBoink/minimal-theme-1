@@ -4,6 +4,7 @@ Edit the four placeholders ON YOUR PICO, never in the shared app assets.
 """
 import os
 import binascii
+import framebuf
 import gc
 import time
 import ntptime
@@ -22,6 +23,7 @@ WATCHDOG_TIMEOUT_MS = 8000
 HTTP_TIMEOUT_SECONDS = 3
 watchdog = None
 started_at = time.ticks_ms()
+activity = None
 
 
 def timestamped_error(message):
@@ -130,12 +132,54 @@ def wait_with_wifi(lcd, wlan, seconds):
         time.sleep_ms(250)
 
 
+def large_text(lcd, text, x, y):
+    """Render the built-in 8x8 font at double size using a tiny glyph buffer."""
+    glyph = framebuf.FrameBuffer(bytearray(8), 8, 8, framebuf.MONO_HLSB)
+    for index, character in enumerate(text):
+        glyph.fill(0)
+        glyph.text(character, 0, 0, 1)
+        for gy in range(8):
+            for gx in range(8):
+                if glyph.pixel(gx, gy):
+                    lcd.fill_rect(x + index * 16 + gx * 2, y + gy * 2, 2, 2, 0xffff)
+
+
+def activity_color(count):
+    """RGB565 byte order for the Waveshare framebuffer sent directly over SPI."""
+    if count >= 20:
+        red, green, blue = 0, 96, 0
+    elif count >= 10:
+        red, green, blue = 0, 192, 0
+    else:
+        red, green, blue = 144, 238, 144
+    rgb565 = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    return ((rgb565 & 255) << 8) | (rgb565 >> 8)
+
+
+def draw_activity(lcd):
+    """Today and the previous two days, each with 12 two-hour boxes."""
+    if activity is None:
+        lcd.text('Activity: syncing...', 4, 44, 0xffff)
+        return
+    for row, day in enumerate(activity.get('days', [activity])):
+        y = 42 + row * 20
+        large_text(lcd, day['date'], 4, y)
+        counts = day.get('counts')
+        for index, occupied in enumerate(day['slots']):
+            x = 104 + index * 11
+            if occupied:
+                lcd.fill_rect(x, y, 9, 16, activity_color(counts[index] if counts is not None else 1))
+            else:
+                lcd.rect(x, y, 9, 16, 0xffff)
+
+
 def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
     lcd.fill(0)
     lcd.text('PICO POST', 12, 10, 0xffff)
     lcd.hline(12, 25, 216, 0xffff)
-    for index, line in enumerate(lines[page * 22:(page + 1) * 22]):
-        lcd.text(line, 12, 44 + index * 8, 0xffff)
+    draw_activity(lcd)
+    for index, line in enumerate(lines[page * 15:(page + 1) * 15]):
+        lcd.text(line, 12, 102 + index * 8, 0xffff)
     lcd.text('%d / %d' % (page + 1, total), 12, 226, 0xffff)
     if app_status:
         lcd.text(app_status, 100, 226, 0xffff)
@@ -176,7 +220,7 @@ class ButtonA:
 
 
 def main():
-    global watchdog
+    global watchdog, activity
     if PAIRING_KEY == 'YOUR_PAIRING_KEY' or WIFI_SSID == 'YOUR_WIFI_NAME':
         raise timestamped_error('Fill in the four configuration values in main.py on your Pico.')
     if not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
@@ -227,12 +271,13 @@ def main():
             wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()
             continue
+        activity = data.get('activity')
         revision = data['revision']
         if revision != current_revision:
             lines = wrap_text(data['text']) if revision else ['Waiting for a message...']
             current_revision = revision
             page = 0
-        pages = max(1, (len(lines) + 21) // 22)
+        pages = max(1, (len(lines) + 14) // 15)
         draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF')
         # Let the final page be visible before confirming delivery.
         wait_with_wifi(lcd, wlan, POLL_SECONDS)

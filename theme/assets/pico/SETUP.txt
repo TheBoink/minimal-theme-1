@@ -125,3 +125,22 @@ Before the first successful clock sync, errors show UTC not synced and uptime
 instead. The original exception still raises normally in Thonny. Errors raised
 inside third-party libraries retain their original messages.
 Install this updated main.py with your four existing local configuration values.
+
+THREE-DAY TWO-HOUR ACTIVITY ROWS
+The LCD displays three rows: today, yesterday and the day before, in UTC.
+Each row has a double-size date such as 11 NOV followed by 12 boxes. From left to
+right these represent 00:00–01:59, 02:00–03:59, through 22:00–23:59 UTC.
+A filled box means at least one recorded A press; an outlined box means none.
+The date and history load from the app database on each successful message poll,
+survive Pico restarts, and switch to the new day after midnight UTC. While
+offline the last fetched date/history remain visible; before the first fetch
+the row shows Activity: syncing... Recorded times are server receipt times,
+so presses queued while offline appear in the period when they reach the app.
+Install the updated main.py and restore your four local configuration values.
+The existing lcd_driver.py stays unchanged. Message pages now hold 15 lines to leave room for the three activity rows.
+
+ACTIVITY COLORS
+Each two-hour box uses its saved A-press count: 0 = white outline, 1–9 = light
+green, 10–19 = green, 20 or more = dark green. Applies to all three daily rows.
+Install the updated main.py with your existing four connection settings. The
+server now returns counts alongside occupied slots; old firmware remains usable.

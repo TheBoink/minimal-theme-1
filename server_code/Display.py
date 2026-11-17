@@ -47,6 +47,28 @@ def send_message(key, message):
     return {'ok': True}
 
 
+def _daily_activity(display, now=None):
+    now = now if now is not None else datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    oldest = start - timedelta(days=2)
+    counts = [[0] * 12 for _ in range(3)]
+    for press in app_tables.button_presses.search(
+            q.fetch_only('received_at'), display=display, button='A',
+            received_at=q.all_of(q.greater_than_or_equal_to(oldest),
+                                q.less_than(start + timedelta(days=1)))):
+        seconds = int((press['received_at'] - oldest).total_seconds())
+        counts[seconds // 86400][(seconds % 86400) // 7200] += 1
+    months = ('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+              'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC')
+    days = []
+    for index in (2, 1, 0):
+        day = oldest + timedelta(days=index)
+        days.append({'date': '%02d %s' % (day.day, months[day.month - 1]),
+                     'slots': [count > 0 for count in counts[index]], 'counts': counts[index]})
+    # Keep today's fields for receivers running the previous firmware.
+    return dict(days[0], days=days)
+
+
 @anvil.server.route('/device/message', methods=['GET'])
 def device_message(**params):
     row = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
@@ -54,7 +76,8 @@ def device_message(**params):
         return anvil.server.HttpResponse(401, 'Invalid pairing key')
     row['last_seen'] = datetime.now(timezone.utc)
     import json
-    return anvil.server.HttpResponse(200, json.dumps({'text': row['message'], 'revision': row['revision']}),
+    return anvil.server.HttpResponse(200, json.dumps({'text': row['message'], 'revision': row['revision'],
+                                                      'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 
 
