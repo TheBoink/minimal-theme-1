@@ -21,6 +21,17 @@ POLL_SECONDS = 3
 WATCHDOG_TIMEOUT_MS = 8000
 HTTP_TIMEOUT_SECONDS = 3
 watchdog = None
+started_at = time.ticks_ms()
+
+
+def timestamped_error(message):
+    if clock.synced:
+        now = time.gmtime()
+        stamp = '%04d-%02d-%02d %02d:%02d:%02d UTC' % now[:6]
+    else:
+        elapsed = time.ticks_diff(time.ticks_ms(), started_at) // 1000
+        stamp = 'UTC not synced; uptime %ds' % elapsed
+    return RuntimeError('[' + stamp + '] ' + message)
 
 
 def feed_watchdog():
@@ -52,9 +63,9 @@ def fetch(method, url, payload=None):
                                 json=payload, timeout=HTTP_TIMEOUT_SECONDS)
     try:
         if response.status_code == 401:
-            raise RuntimeError('Pairing key rejected. Check PAIRING_KEY.')
+            raise timestamped_error('Pairing key rejected. Check PAIRING_KEY.')
         if response.status_code != 200:
-            raise RuntimeError('App HTTP status: ' + str(response.status_code))
+            raise timestamped_error('App HTTP status: ' + str(response.status_code))
         return response.json() if method == 'GET' else None
     finally:
         response.close()
@@ -167,9 +178,9 @@ class ButtonA:
 def main():
     global watchdog
     if PAIRING_KEY == 'YOUR_PAIRING_KEY' or WIFI_SSID == 'YOUR_WIFI_NAME':
-        raise RuntimeError('Fill in the four configuration values in main.py on your Pico.')
+        raise timestamped_error('Fill in the four configuration values in main.py on your Pico.')
     if not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
-        raise RuntimeError('Copy the full HTTPS Device polling endpoint from the app.')
+        raise timestamped_error('Copy the full HTTPS Device polling endpoint from the app.')
     print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
     time.sleep(5)
     watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)

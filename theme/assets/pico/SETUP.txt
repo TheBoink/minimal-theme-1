@@ -117,3 +117,11 @@ A watchdog reset loses button presses still queued only in RAM. Already saved
 database rows remain safe. This recovery does not identify or fix the underlying
 cause of the reported five-minute hang. For verification, run for longer than
 five minutes and confirm time, messages and button delivery continue working.
+
+TIMESTAMPED RUNTIME ERRORS
+Runtime errors raised explicitly by main.py now include the UTC date and time,
+for example: [2026-11-17 10:42:05 UTC] App HTTP status: 500.
+Before the first successful clock sync, errors show UTC not synced and uptime
+instead. The original exception still raises normally in Thonny. Errors raised
+inside third-party libraries retain their original messages.
+Install this updated main.py with your four existing local configuration values.
