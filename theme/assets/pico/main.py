@@ -10,7 +10,7 @@ import time
 import ntptime
 import network
 import requests
-from machine import Pin, PWM, WDT
+from machine import Pin, PWM, WDT, Timer
 from lcd_driver import LCD_1inch3
 
 # pico_config.py lives on your Pico, next to main.py and lcd_driver.py.
@@ -203,19 +203,30 @@ def connect(wlan, on_status):
 
 
 class ButtonA:
-    """Capture falling edges even while Wi-Fi/HTTP is blocking."""
+    """Debounce press and release with fixed-interval GPIO sampling."""
     def __init__(self):
         self.total = 0
-        self.last_press = time.ticks_ms()
         # External switch: physical pin 19 (GP14) to physical pin 18 (GND).
         self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
-        self.pin.irq(trigger=Pin.IRQ_FALLING, handler=self.pressed)
+        self.stable = self.pin.value()
+        self.candidate = self.stable
+        self.samples = 0
+        # Hard callback continues during blocking network requests. It only uses
+        # pre-existing objects and small integers, so it does not allocate.
+        self.timer = Timer(-1)
+        self.timer.init(period=10, mode=Timer.PERIODIC, callback=self.sample, hard=True)
 
-    def pressed(self, pin):
-        now = time.ticks_ms()
-        if time.ticks_diff(now, self.last_press) >= 200:
-            self.last_press = now
-            self.total += 1
+    def sample(self, timer):
+        value = self.pin.value()
+        if value != self.candidate:
+            self.candidate = value
+            self.samples = 1
+        elif self.samples < 10:
+            self.samples += 1
+        if self.samples == 10 and self.candidate != self.stable:
+            self.stable = self.candidate
+            if self.stable == 0:
+                self.total += 1
 
 
 def main():

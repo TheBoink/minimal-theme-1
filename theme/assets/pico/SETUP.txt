@@ -48,3 +48,11 @@ green, 1–9 yellow, 10–19 orange, and 20+ red. Rows run oldest to newest.
 Records use server receipt time, so presses queued offline are grouped when
 received. The clock syncs over Wi-Fi; the last received timezone offset is used
 when offline. The browser's 10-minute chart and diagnostic timestamps use UTC.
+
+EXTERNAL BUTTON DEBOUNCE
+The GP14 input is sampled every 10 ms. It must remain pressed for ten samples
+before one event is counted, then remain released for ten samples before the
+next press can be counted. This suppresses brief bounce on both edges and works
+while the Pico is handling network requests. Extremely short presses may not be
+counted; a noisy signal that stays low for 100 ms can still look like a press.
+Install the new main.py on the Pico and keep your existing pico_config.py.
