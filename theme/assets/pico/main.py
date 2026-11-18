@@ -210,20 +210,19 @@ class ButtonA:
         self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
         self.stable = self.pin.value()
         self.candidate = self.stable
-        self.samples = 0
-        # Hard callback continues during blocking network requests. It only uses
-        # pre-existing objects and small integers, so it does not allocate.
+        self.candidate_since = time.ticks_ms()
+        # The default soft timer works across Pico MicroPython versions.
         self.timer = Timer(-1)
-        self.timer.init(period=10, mode=Timer.PERIODIC, callback=self.sample, hard=True)
+        self.timer.init(period=10, mode=Timer.PERIODIC, callback=self.sample)
 
     def sample(self, timer):
         value = self.pin.value()
+        now = time.ticks_ms()
         if value != self.candidate:
             self.candidate = value
-            self.samples = 1
-        elif self.samples < 10:
-            self.samples += 1
-        if self.samples == 10 and self.candidate != self.stable:
+            self.candidate_since = now
+        if (self.candidate != self.stable
+                and time.ticks_diff(now, self.candidate_since) >= 100):
             self.stable = self.candidate
             if self.stable == 0:
                 self.total += 1
