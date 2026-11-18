@@ -1,6 +1,6 @@
 """Pico Post receiver for Pico 2 W + Waveshare Pico-LCD-1.3.
 Install the official Waveshare driver as lcd_driver.py alongside this file.
-Edit the four placeholders ON YOUR PICO, never in the shared app assets.
+Create pico_config.py on your Pico using the supplied template.
 """
 import os
 import binascii
@@ -13,14 +13,10 @@ import requests
 from machine import Pin, PWM, WDT
 from lcd_driver import LCD_1inch3
 
-WIFI_SSID = 'YOUR_WIFI_NAME'
-WIFI_PASSWORD = 'YOUR_WIFI_PASSWORD'
-# Copy the complete Device polling endpoint from the app, not its editor URL.
-MESSAGE_URL = 'https://YOUR_APP.anvil.app/device/message'
-PAIRING_KEY = 'YOUR_PAIRING_KEY'
-POLL_SECONDS = 3
-WATCHDOG_TIMEOUT_MS = 8000
-HTTP_TIMEOUT_SECONDS = 3
+# pico_config.py lives on your Pico, next to main.py and lcd_driver.py.
+from pico_config import (WIFI_SSID, WIFI_PASSWORD, MESSAGE_URL, PAIRING_KEY,
+                         POLL_SECONDS, WATCHDOG_TIMEOUT_MS, HTTP_TIMEOUT_SECONDS)
+
 watchdog = None
 started_at = time.ticks_ms()
 activity = None
@@ -224,10 +220,18 @@ class ButtonA:
 
 def main():
     global watchdog, activity
-    if PAIRING_KEY == 'YOUR_PAIRING_KEY' or WIFI_SSID == 'YOUR_WIFI_NAME':
-        raise timestamped_error('Fill in the four configuration values in main.py on your Pico.')
-    if not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
-        raise timestamped_error('Copy the full HTTPS Device polling endpoint from the app.')
+    if (not isinstance(WIFI_SSID, str) or not WIFI_SSID or WIFI_SSID == 'YOUR_WIFI_NAME'
+            or not isinstance(WIFI_PASSWORD, str)
+            or not isinstance(PAIRING_KEY, str) or not PAIRING_KEY
+            or PAIRING_KEY == 'YOUR_PAIRING_KEY'):
+        raise timestamped_error('Set Wi-Fi and pairing values in pico_config.py on your Pico.')
+    if not isinstance(MESSAGE_URL, str) or not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
+        raise timestamped_error('Set MESSAGE_URL to the HTTPS Device polling endpoint in pico_config.py.')
+    if (type(POLL_SECONDS) is not int or POLL_SECONDS < 1
+            or type(WATCHDOG_TIMEOUT_MS) is not int or not 1000 <= WATCHDOG_TIMEOUT_MS <= 8000
+            or type(HTTP_TIMEOUT_SECONDS) is not int or HTTP_TIMEOUT_SECONDS < 1
+            or HTTP_TIMEOUT_SECONDS * 1000 >= WATCHDOG_TIMEOUT_MS):
+        raise timestamped_error('Check the timing settings in pico_config.py.')
     print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
     time.sleep(5)
     watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
@@ -269,7 +273,7 @@ def main():
             data = fetch('GET', MESSAGE_URL)
         except OSError:
             # Network outages are expected; preserve the last message and retry.
-            print('Network unavailable; retrying in 3 seconds.')
+            print('Network unavailable; retrying in %s seconds.' % POLL_SECONDS)
             draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
             wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()

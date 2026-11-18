@@ -1,165 +1,50 @@
-PICO POST — MICRO­PYTHON SETUP
+PICO POST — PICO 2 W SETUP
 
-Target: Raspberry Pi Pico 2 W with Waveshare Pico-LCD-1.3 (240 x 240).
-The plug-on board has a joystick and A/B/X/Y buttons. A separate wired module
-may use other pins. The official driver uses GPIO 10 SCK, 11 MOSI, 9 CS,
-8 DC, 12 RESET, and 13 backlight. GPIO numbers are not physical pin numbers.
+Connect the external normally-open button between physical pin 19 (GP14) and
+physical pin 18 (GND), with the Pico powered off. The LCD's A button is no
+longer used as the input; the app labels external-button events as button A.
 
-1. Install stable MicroPython for Pico 2 W:
-   https://micropython.org/download/RPI_PICO2_W/
-   Hold BOOTSEL while connecting USB; copy the downloaded UF2 to the drive.
+First install or migration from the old main.py:
+1. In Thonny, open your existing Pico main.py and privately note WIFI_SSID,
+   WIFI_PASSWORD, MESSAGE_URL and PAIRING_KEY. Do not post or save those values
+   in the Anvil asset templates. Use your existing pairing key to retain history.
+2. Open the supplied pico_config.py template and put those four values in your
+   PRIVATE copy. Save it to the Pico as pico_config.py, next to main.py and
+   lcd_driver.py. The template also contains optional timing settings.
+3. Save the updated main.py to the Pico. Keep your existing lcd_driver.py and
+   installed requests and ntptime packages. Restart the Pico. Later firmware
+   updates only need a new main.py; keep your private pico_config.py.
 
-2. Open Thonny and choose the MicroPython (Raspberry Pi Pico) interpreter.
-   Use a 2.4 GHz Wi-Fi network.
+For a new Pico, install MicroPython for Pico 2 W, select it in Thonny, install
+requests and ntptime on the Pico, and save Waveshare's Pico-LCD-1.3 MicroPython
+sample as lcd_driver.py. In the published app, create a display and copy its
+private pairing key and complete Device polling endpoint into pico_config.py.
 
-3. Download Waveshare's official MicroPython demo:
-   https://raw.githubusercontent.com/waveshare/Pico_code/main/Python/Pico-LCD-1.3/Pico-LCD-1.3.py
-   Save it on the Pico as lcd_driver.py. Importing it does not run its demo.
+After restarting, the LCD should show the Amsterdam clock and the previous
+three days' activity. Press the external button and check that the app's count
+and chart update. Both the Pico and app must use the same pairing key.
 
-4. Install the MicroPython requests package through Thonny's package manager,
-   targeting the Pico (not the computer). If it is already importable, skip this.
-   Alternatively, after connecting the Pico to Wi-Fi, run in its shell:
-       import mip
-       mip.install('requests')
-
-5. Open the published Pico Post app. Click Create a new display and keep its
-   pairing key. Copy the complete Device polling endpoint shown in that app.
-   Use the published app endpoint for everyday use, not an expiring agent URL.
-
-6. Copy the supplied main.py to your computer. Edit its four placeholders there:
-   WIFI_SSID, WIFI_PASSWORD, MESSAGE_URL, PAIRING_KEY.
-   Store your actual credentials only on your own computer/Pico, not in the
-   Anvil Assets copy of the template. Save the configured file to the Pico as
-   main.py, next to lcd_driver.py. Existing main.py files should be backed up.
-
-7. Run main.py in Thonny. After saving, it also starts automatically on reboot.
-   In the app, enter a message, click Send, wait a few seconds, then click
-   Check connection & delivery. Expect Pico online and Display confirmed.
-
-The receiver preserves the last message during network failures and retries.
-Authentication and unexpected HTTP/programming errors stop with a traceback in
-Thonny rather than pretending that delivery succeeded. Long messages wrap;
-messages with many newlines cycle through pages. Acknowledgement follows the
-last page. A newer message replaces an older one, even during pagination.
+The private config file is stored on the Pico as readable text: treat the Pico
+and any local copies as containing your Wi-Fi password and pairing key. Never
+put real credentials in the app's downloadable template or share them in chat.
 
 Troubleshooting:
-- No module named requests: install the package on the Pico.
-- No module named lcd_driver: check that filename and save location.
-- Pairing key rejected: use the same saved key in the app and Pico.
-- HTTP 404: copy the entire endpoint shown in the published app.
-- Blank LCD: verify the model, orientation, headers and driver/pins first.
+- No module named pico_config: save pico_config.py to the Pico, next to main.py.
+- ImportError for a config name: copy the complete template and add your values.
+- Configuration error: check the four values, especially the full HTTPS URL.
+- No module named requests, ntptime or lcd_driver: install/save it on the Pico.
+- Pairing key rejected: use the same existing key in the Pico config and app.
+- HTTP 404: copy the complete polling endpoint from the published app.
 
-Physical LCD/Wi-Fi operation still requires testing on your actual hardware.
+POLL_SECONDS defaults to 3. WATCHDOG_TIMEOUT_MS defaults to 8000 and must be
+1000–8000; HTTP_TIMEOUT_SECONDS defaults to 3 and must be positive and shorter
+than the watchdog. Slow DNS/TLS/network operations can still exceed the watchdog.
+The Pico waits five seconds before starting the watchdog, allowing Ctrl+C in
+Thonny for maintenance. A watchdog reset discards button presses still queued
+only in RAM; saved database rows remain available.
 
-EXTERNAL BUTTON UPDATE
-Replace main.py on your Pico with the updated template, restoring your four
-local configuration values. Keep lcd_driver.py. Restart the Pico.
-Connect a normally-open push button between physical pin 19 (GP14) and
-physical pin 18 (GND), with the Pico powered off. The internal pull-up makes
-the input active low. Press the external button. With the same pairing key in the app,
-"From your Pico" updates automatically, usually within a few seconds.
-Holding the external button counts once; presses less than 200 ms apart are debounced.
-Presses during network failures are retained in RAM and retried; restarting
-or powering off the Pico discards any unsent presses. Do not run two Pico
-receivers with the same pairing key. The latest received event remains visible
-after reopening the app and entering that key.
-
-DATABASE PRESS HISTORY
-Each received external button press is stored in the Button Presses Data Table, linked to
-its display, with received_at in UTC. This is server receipt time, not the
-physical press time. Older firmware batches share a receipt timestamp.
-The updated main.py sends queued presses separately. It retries the same
-event ID after a network failure, so retries do not create duplicate rows.
-Queued presses remain in RAM only until sent; a power loss discards them.
-Historical individual presses from before this update cannot be reconstructed.
-
-LCD WI-FI INDICATOR
-Install the updated main.py, restoring your four local configuration values.
-The top-right LCD header shows WIFI:WAIT during startup, WIFI:JOIN while
-connecting/reconnecting, WIFI:ON when connected to the access point with an IP
-address, and WIFI:OFF after a connection failure or loss. Message pages and
-queued button presses are preserved during reconnection attempts.
-APP: RETRY in the footer means an app/network request failed; Wi-Fi can still
-be ON if the access point is connected but internet/app access is unavailable.
-The indicator checks the link every 250 ms during page waits. Blocking network
-requests can delay updates until the request returns or times out.
-Test by turning off the access point, then restoring it; expect OFF/JOIN,
-then ON and resumed message/button delivery. No LCD driver change is needed.
-
-LCD CLOCK
-The updated main.py displays UTC HH:MM:SS below the header and Wi-Fi indicator.
-It syncs the Pico RTC using ntptime after Wi-Fi connects, then every hour.
-Until the first successful sync, it shows UTC --:--:-- (syncing). Failed syncs
-retry after a minute without stopping messages or button delivery. Once synced,
-the RTC keeps running during Wi-Fi outages, until power is lost or the board
-resets. UTC has no daylight-saving adjustment.
-If importing ntptime fails, install ntptime onto the Pico using Thonny's package
-manager (or mip.install('ntptime') while connected to Wi-Fi).
-The clock refreshes during page waits and reconnection; blocking HTTP/NTP
-operations may briefly pause the visible seconds. Pages now hold 22 lines to
-reserve clock space. Install this main.py with your existing four configuration
-values; keep lcd_driver.py unchanged.
-
-WATCHDOG RECOVERY
-The updated main.py enables the hardware watchdog with an 8000 ms timeout.
-If Python execution stalls and stops feeding it, the Pico restarts automatically.
-The saved main.py runs again on reboot and reconnects. Feeds happen in the main
-code and bounded wait loops, never from button interrupts or background timers.
-HTTP socket timeout is now 3 seconds; NTP timeout is 1 second. A network/DNS/TLS
-operation that remains blocked beyond the watchdog interval will cause a reset.
-Ordinary Wi-Fi connection attempts and retry waits feed the watchdog normally.
-
-Install this main.py with your existing four configuration values. Keep the LCD
-driver unchanged. Startup waits 5 seconds before arming the watchdog, giving you
-time to press Ctrl+C in Thonny if you need to edit or diagnose the device.
-Once armed, the hardware watchdog cannot be stopped until a hardware reset.
-After interrupting running code, reset and interrupt during the startup delay.
-
-A watchdog reset loses button presses still queued only in RAM. Already saved
-database rows remain safe. This recovery does not identify or fix the underlying
-cause of the reported five-minute hang. For verification, run for longer than
-five minutes and confirm time, messages and button delivery continue working.
-
-TIMESTAMPED RUNTIME ERRORS
-Runtime errors raised explicitly by main.py now include the UTC date and time,
-for example: [2026-11-17 10:42:05 UTC] App HTTP status: 500.
-Before the first successful clock sync, errors show UTC not synced and uptime
-instead. The original exception still raises normally in Thonny. Errors raised
-inside third-party libraries retain their original messages.
-Install this updated main.py with your four existing local configuration values.
-
-THREE-DAY TWO-HOUR ACTIVITY ROWS
-The LCD displays three rows, top to bottom: the day before yesterday, yesterday,
-and today, using Amsterdam local time.
-Each row has a double-size date such as 11 NOV followed by 12 boxes. From left to
-right these represent 00:00–01:59, 02:00–03:59, through 22:00–23:59 UTC.
-Every box is filled; its color indicates the recorded A-press count (see below).
-The date and history load from the app database on each successful message poll,
-survive Pico restarts, and switch to the new day after midnight UTC. While
-offline the last fetched date/history remain visible; before the first fetch
-the row shows Activity: syncing... Recorded times are server receipt times,
-so presses queued while offline appear in the period when they reach the app.
-Install the updated main.py and restore your four local configuration values.
-The existing lcd_driver.py stays unchanged. Message pages now hold 15 lines to leave room for the three activity rows.
-
-ACTIVITY COLORS
-Each two-hour box uses its saved button-press count: 0 = light green, 1–9 = yellow,
-10–19 = orange, 20 or more = red. Applies to all three daily rows.
-Install the updated main.py with your existing four connection settings. The
-server now returns counts alongside occupied slots; old firmware remains usable.
-
-AMSTERDAM LOCAL TIME
-The LCD clock and three activity dates/rows now use Europe/Amsterdam time.
-The app supplies CET (UTC+1) or CEST (UTC+2) on each successful message poll.
-The Pico RTC and diagnostic error timestamps remain UTC. Until the first app
-response the clock displays UTC. During an outage it retains the last received
-offset; a summer/winter-time transition is picked up when app polling resumes.
-Two-hour activity slots follow local wall time. On the autumn transition, both
-occurrences of 02:00–02:59 count in the same 02:00–03:59 box. On the spring
-transition the missing hour has no presses. Database timestamps stay unchanged.
-The browser's 10-minute chart remains explicitly labelled UTC.
-Install updated main.py with your existing connection settings; keep the driver.
-
-The external GP14 button replaces the LCD's A button as the input. The app
-continues to label these events as button A, so existing history and activity
-charts remain together. The existing driver and credentials are unchanged.
+Each two-hour activity box covers Amsterdam local time. Zero presses are light
+green, 1–9 yellow, 10–19 orange, and 20+ red. Rows run oldest to newest.
+Records use server receipt time, so presses queued offline are grouped when
+received. The clock syncs over Wi-Fi; the last received timezone offset is used
+when offline. The browser's 10-minute chart and diagnostic timestamps use UTC.
