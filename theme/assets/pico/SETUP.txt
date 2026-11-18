@@ -51,19 +51,21 @@ Troubleshooting:
 
 Physical LCD/Wi-Fi operation still requires testing on your actual hardware.
 
-BUTTON A UPDATE
+EXTERNAL BUTTON UPDATE
 Replace main.py on your Pico with the updated template, restoring your four
 local configuration values. Keep lcd_driver.py. Restart the Pico.
-Press A (GPIO 15, active low). With the same pairing key entered in the app,
+Connect a normally-open push button between physical pin 19 (GP14) and
+physical pin 18 (GND), with the Pico powered off. The internal pull-up makes
+the input active low. Press the external button. With the same pairing key in the app,
 "From your Pico" updates automatically, usually within a few seconds.
-Holding A counts once; presses less than 200 ms apart are debounced.
+Holding the external button counts once; presses less than 200 ms apart are debounced.
 Presses during network failures are retained in RAM and retried; restarting
 or powering off the Pico discards any unsent presses. Do not run two Pico
 receivers with the same pairing key. The latest received event remains visible
 after reopening the app and entering that key.
 
 DATABASE PRESS HISTORY
-Each received A press is stored in the Button Presses Data Table, linked to
+Each received external button press is stored in the Button Presses Data Table, linked to
 its display, with received_at in UTC. This is server receipt time, not the
 physical press time. Older firmware batches share a receipt timestamp.
 The updated main.py sends queued presses separately. It retries the same
@@ -141,7 +143,7 @@ Install the updated main.py and restore your four local configuration values.
 The existing lcd_driver.py stays unchanged. Message pages now hold 15 lines to leave room for the three activity rows.
 
 ACTIVITY COLORS
-Each two-hour box uses its saved A-press count: 0 = light green, 1–9 = yellow,
+Each two-hour box uses its saved button-press count: 0 = light green, 1–9 = yellow,
 10–19 = orange, 20 or more = red. Applies to all three daily rows.
 Install the updated main.py with your existing four connection settings. The
 server now returns counts alongside occupied slots; old firmware remains usable.
@@ -157,3 +159,7 @@ occurrences of 02:00–02:59 count in the same 02:00–03:59 box. On the spring
 transition the missing hour has no presses. Database timestamps stay unchanged.
 The browser's 10-minute chart remains explicitly labelled UTC.
 Install updated main.py with your existing connection settings; keep the driver.
+
+The external GP14 button replaces the LCD's A button as the input. The app
+continues to label these events as button A, so existing history and activity
+charts remain together. The existing driver and credentials are unchanged.

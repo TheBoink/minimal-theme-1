@@ -211,7 +211,8 @@ class ButtonA:
     def __init__(self):
         self.total = 0
         self.last_press = time.ticks_ms()
-        self.pin = Pin(15, Pin.IN, Pin.PULL_UP)
+        # External switch: physical pin 19 (GP14) to physical pin 18 (GND).
+        self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
         self.pin.irq(trigger=Pin.IRQ_FALLING, handler=self.pressed)
 
     def pressed(self, pin):
