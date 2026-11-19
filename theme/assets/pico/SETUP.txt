@@ -56,3 +56,55 @@ for at least 100 ms before another press can count. Timer callbacks may be
 delayed during network requests, so short presses can be missed. A noisy signal
 that stays low for 100 ms can still look like a press.
 Install the new main.py on the Pico and keep your existing pico_config.py.
+
+DOUBLE GP22 PULSE
+For each accepted external button press (GP14, physical pin 19), GP22
+(physical pin 29) pulls low for 100 ms, releases for 500 ms, pulls low for
+another 100 ms, and then returns to high impedance.
+The output is released at startup. Holding the input button does not repeat the
+pulse; release and press again. Button history is still reported to the app.
+These are nominal timings. A stalled Pico can hold it low until its
+watchdog resets; reset/power loss releases the open-drain output.
+
+Do not connect GP22 directly to the 3.7 V battery device: a charged cell can
+reach 4.2 V, beyond the Pico's 3.3 V GPIO range. Use a properly rated isolated
+interface, such as a relay module with low-current dry contacts, a 3.3 V
+compatible active-low control input, and appropriate power/driver circuitry.
+Confirm the target device's switch contact arrangement and ratings before
+wiring. Do not connect a relay coil directly to GP22. Test the output and the
+interface separately before connecting the target device.
+Install updated main.py; your existing pico_config.py does not need changes.
+
+STARTUP LOGO
+After the five-second maintenance delay and display initialization, the LCD
+shows the PICO POST logo for 10 seconds, then connects and shows the normal
+screen. The watchdog is fed during the logo. The external button remains active
+during the logo and can trigger its GP22 pulse. Install the new main.py and
+keep the existing private pico_config.py.
+
+CUSTOM STARTUP IMAGE
+1. Save your square DrinkBuddy image on your computer, e.g. drinkbuddy.png.
+2. Copy convert_logo.py to your computer. Install Pillow if needed:
+      python -m pip install Pillow
+3. Run:
+      python convert_logo.py drinkbuddy.png startup_logo.rgb565
+4. In Thonny, upload startup_logo.rgb565 to the Pico root, next to main.py.
+   Also install the updated main.py; retain your existing pico_config.py.
+5. Restart. The image appears for 10 seconds after the maintenance delay.
+
+The converter produces 115,200 bytes, 240x240 RGB565 with high byte first.
+The Pico reads it directly into the LCD framebuffer in small chunks. With no
+image file the built-in PICO POST wordmark is shown. An image with the wrong
+file size raises an error instead of displaying incomplete data.
+The external button remains active while the startup screen is showing.
+
+LOGO SCREENSAVER
+After 30 seconds without an accepted external button press, the LCD displays
+startup_logo.rgb565, or the built-in wordmark if no image is installed. The
+next accepted press wakes the display and also performs the normal button action,
+including both GP22 pulses and recording the event. The normal screen is drawn
+again; polling, Wi-Fi retries and the watchdog continue while the logo is shown.
+The 30-second period begins after the startup logo. Soft timer callbacks and
+blocking network operations may delay activation or wake-up; presses shorter than
+the debounce period may be missed. Install updated main.py and keep pico_config.py
+and startup_logo.rgb565 on the Pico.

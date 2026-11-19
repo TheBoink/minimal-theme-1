@@ -20,6 +20,11 @@ from pico_config import (WIFI_SSID, WIFI_PASSWORD, MESSAGE_URL, PAIRING_KEY,
 watchdog = None
 started_at = time.ticks_ms()
 activity = None
+screen_button = None
+screen_last_count = 0
+screen_last_press = None
+screensaver_active = False
+screen_last_draw = None
 
 
 def timestamped_error(message):
@@ -109,6 +114,9 @@ def clock_indicator(lcd):
 
 
 def wifi_indicator(lcd, status):
+    update_screensaver(lcd)
+    if screensaver_active:
+        return
     # Reserve the right side of the header; never cover message text.
     lcd.fill_rect(140, 6, 100, 16, 0)
     lcd.text('WIFI:' + status, 140, 10, 0xffff)
@@ -121,6 +129,7 @@ def wait_with_wifi(lcd, wlan, seconds):
     start = time.ticks_ms()
     previous = None
     while time.ticks_diff(time.ticks_ms(), start) < seconds * 1000:
+        update_screensaver(lcd)
         status = 'ON' if wlan.isconnected() else 'OFF'
         state = (status, clock.label())
         if state != previous:
@@ -140,6 +149,62 @@ def large_text(lcd, text, x, y):
             for gx in range(8):
                 if glyph.pixel(gx, gy):
                     lcd.fill_rect(x + index * 16 + gx * 2, y + gy * 2, 2, 2, 0xffff)
+
+
+def render_logo(lcd):
+    """Draw the optional RGB565 image, or the built-in wordmark."""
+    try:
+        logo = open('startup_logo.rgb565', 'rb')
+    except OSError as error:
+        if error.errno != 2:
+            raise
+        # Keep a useful startup display when the optional image is not installed.
+        lcd.fill(0)
+        lcd.rect(36, 56, 168, 115, 0xffff)
+        lcd.fill_rect(105, 75, 30, 6, 0xffff)
+        lcd.fill_rect(117, 63, 6, 30, 0xffff)
+        large_text(lcd, 'PICO POST', 48, 108)
+        lcd.text('CONNECTING YOUR WORLD', 36, 147, 0xffff)
+    else:
+        try:
+            view = memoryview(lcd.buffer)
+            offset = 0
+            while offset < len(view):
+                amount = logo.readinto(view[offset:offset + 4096])
+                if not amount:
+                    raise ValueError('startup_logo.rgb565 must contain 115200 bytes')
+                offset += amount
+                feed_watchdog()
+            if logo.read(1):
+                raise ValueError('startup_logo.rgb565 must contain 115200 bytes')
+        finally:
+            logo.close()
+    lcd.show()
+
+
+def show_startup_logo(lcd):
+    render_logo(lcd)
+    start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start) < 10000:
+        feed_watchdog()
+        time.sleep_ms(100)
+
+
+def update_screensaver(lcd):
+    global screen_last_count, screen_last_press, screensaver_active
+    if screen_button is None:
+        return
+    now = time.ticks_ms()
+    if screen_button.total != screen_last_count:
+        screen_last_count = screen_button.total
+        screen_last_press = now
+        if screensaver_active:
+            screensaver_active = False
+            if screen_last_draw is not None:
+                draw(lcd, *screen_last_draw)
+    elif not screensaver_active and time.ticks_diff(now, screen_last_press) >= 30000:
+        screensaver_active = True
+        render_logo(lcd)
 
 
 def activity_color(count):
@@ -172,6 +237,11 @@ def draw_activity(lcd):
 
 
 def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
+    global screen_last_draw
+    screen_last_draw = (lines, page, total, wifi_status, app_status)
+    update_screensaver(lcd)
+    if screensaver_active:
+        return
     lcd.fill(0)
     lcd.text('PICO POST', 12, 10, 0xffff)
     lcd.hline(12, 25, 216, 0xffff)
@@ -204,8 +274,9 @@ def connect(wlan, on_status):
 
 class ButtonA:
     """Debounce press and release with fixed-interval GPIO sampling."""
-    def __init__(self):
+    def __init__(self, pulse_output):
         self.total = 0
+        self.pulse_output = pulse_output
         # External switch: physical pin 19 (GP14) to physical pin 18 (GND).
         self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
         self.stable = self.pin.value()
@@ -226,10 +297,19 @@ class ButtonA:
             self.stable = self.candidate
             if self.stable == 0:
                 self.total += 1
+                # GP22 is open drain: 0 sinks to ground; 1 releases the line.
+                for pulse in range(2):
+                    self.pulse_output.value(0)
+                    try:
+                        time.sleep_ms(100)
+                    finally:
+                        self.pulse_output.value(1)
+                    if pulse == 0:
+                        time.sleep_ms(500)
 
 
 def main():
-    global watchdog, activity
+    global watchdog, activity, screen_button, screen_last_count, screen_last_press
     if (not isinstance(WIFI_SSID, str) or not WIFI_SSID or WIFI_SSID == 'YOUR_WIFI_NAME'
             or not isinstance(WIFI_PASSWORD, str)
             or not isinstance(PAIRING_KEY, str) or not PAIRING_KEY
@@ -242,6 +322,8 @@ def main():
             or type(HTTP_TIMEOUT_SECONDS) is not int or HTTP_TIMEOUT_SECONDS < 1
             or HTTP_TIMEOUT_SECONDS * 1000 >= WATCHDOG_TIMEOUT_MS):
         raise timestamped_error('Check the timing settings in pico_config.py.')
+    # Release GP22 before the startup delay, so an active-low interface is off.
+    pulse_output = Pin(22, Pin.OPEN_DRAIN, value=1)
     print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
     time.sleep(5)
     watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
@@ -249,7 +331,7 @@ def main():
     ntptime.timeout = 1
     ack_url = MESSAGE_URL[:-len('/message')] + '/ack'
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
-    button = ButtonA()
+    button = ButtonA(pulse_output)
     boot_id = binascii.hexlify(os.urandom(8)).decode()
     sent_presses = 0
     pending_event = None
@@ -259,6 +341,10 @@ def main():
     backlight.duty_u16(32768)
     lcd = LCD_1inch3()
     feed_watchdog()
+    show_startup_logo(lcd)
+    screen_button = button
+    screen_last_count = button.total
+    screen_last_press = time.ticks_ms()
     draw(lcd, ['Connecting to Wi-Fi...'], 0, 1)
     wlan = network.WLAN(network.STA_IF)
     current_revision = None
