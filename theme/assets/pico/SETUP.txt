@@ -108,3 +108,31 @@ The 30-second period begins after the startup logo. Soft timer callbacks and
 blocking network operations may delay activation or wake-up; presses shorter than
 the debounce period may be missed. Install updated main.py and keep pico_config.py
 and startup_logo.rgb565 on the Pico.
+
+PULSE DELAY SETTING
+The app saves the released time between pulses separately for each display.
+Default is 500 ms; enter a whole number from 0 to 5000 and click Save pulse delay.
+The Pico applies it on its next successful poll, including when it reconnects.
+An in-progress pulse pair keeps the delay it started with. After a Pico restart,
+it uses 500 ms until its first successful app poll; while offline after a sync,
+it keeps the last value received. Install updated main.py and keep pico_config.py.
+
+WAITING PERIOD
+In the app, set Waiting period between drinks to 0–1440 whole minutes. Default
+0 means no delay. Changes sync at the next successful Pico poll. After an action,
+presses during the waiting period are recorded, but do not trigger GP22. The LCD
+shows the remaining minutes in larger text, rounded up, for five seconds. Changing the waiting
+period recalculates it from the time of the most recent GP22 action.
+The countdown is kept in Pico RAM and resets on reboot or power loss. The Pico
+starts with 0 minutes until its first successful poll; if offline after a sync,
+it retains the most recently received setting until reboot. The setting itself
+is stored in the app database. Install updated main.py, keep pico_config.py.
+
+DRINK ACTION IN BUTTON PRESS RECORDS
+The Button Presses Data Table has a drink_triggered column. True means the Pico
+completed both GP22 pulses for that press; False means the waiting period blocked
+it. The Pico has no sensor confirming liquid delivery. Old rows and events from
+older firmware have an unknown (blank) outcome. New firmware queues each press
+with its own outcome until the app acknowledges it, including during temporary
+network outages. Queued events remain in RAM and are lost on a Pico restart.
+Install the updated main.py and keep your existing pico_config.py.

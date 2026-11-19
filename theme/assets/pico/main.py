@@ -25,6 +25,8 @@ screen_last_count = 0
 screen_last_press = None
 screensaver_active = False
 screen_last_draw = None
+screen_notice_seen = 0
+screen_notice_visible = False
 
 
 def timestamped_error(message):
@@ -192,6 +194,7 @@ def show_startup_logo(lcd):
 
 def update_screensaver(lcd):
     global screen_last_count, screen_last_press, screensaver_active
+    global screen_notice_seen, screen_notice_visible
     if screen_button is None:
         return
     now = time.ticks_ms()
@@ -205,6 +208,14 @@ def update_screensaver(lcd):
     elif not screensaver_active and time.ticks_diff(now, screen_last_press) >= 30000:
         screensaver_active = True
         render_logo(lcd)
+    notice_active = (screen_button.notice_until is not None and
+                     time.ticks_diff(screen_button.notice_until, now) > 0)
+    if (screen_button.notice_version != screen_notice_seen or
+            notice_active != screen_notice_visible):
+        screen_notice_seen = screen_button.notice_version
+        screen_notice_visible = notice_active
+        if screen_last_draw is not None and not screensaver_active:
+            draw(lcd, *screen_last_draw)
 
 
 def activity_color(count):
@@ -251,6 +262,12 @@ def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
     lcd.text('%d / %d' % (page + 1, total), 12, 226, 0xffff)
     if app_status:
         lcd.text(app_status, 100, 226, 0xffff)
+    if screen_button is not None and screen_notice_visible:
+        lcd.fill_rect(0, 100, 240, 92, 0)
+        large_text(lcd, 'No drink yet,', 8, 104)
+        large_text(lcd, 'please wait', 8, 125)
+        large_text(lcd, 'for ' + str(screen_button.notice_minutes), 8, 146)
+        large_text(lcd, 'minutes', 8, 167)
     wifi_indicator(lcd, wifi_status)
 
 
@@ -276,7 +293,15 @@ class ButtonA:
     """Debounce press and release with fixed-interval GPIO sampling."""
     def __init__(self, pulse_output):
         self.total = 0
+        # Queue per-press outcomes until the server acknowledges them.
+        self.events = []
         self.pulse_output = pulse_output
+        self.pulse_gap_ms = 500
+        self.cooldown_minutes = 0
+        self.last_action_tick = None
+        self.notice_until = None
+        self.notice_minutes = 0
+        self.notice_version = 0
         # External switch: physical pin 19 (GP14) to physical pin 18 (GND).
         self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
         self.stable = self.pin.value()
@@ -289,6 +314,10 @@ class ButtonA:
     def sample(self, timer):
         value = self.pin.value()
         now = time.ticks_ms()
+        # Drop expired action times before the tick counter can wrap ambiguously.
+        if (self.last_action_tick is not None and
+                time.ticks_diff(now, self.last_action_tick) >= 86400000):
+            self.last_action_tick = None
         if value != self.candidate:
             self.candidate = value
             self.candidate_since = now
@@ -297,7 +326,19 @@ class ButtonA:
             self.stable = self.candidate
             if self.stable == 0:
                 self.total += 1
+                event_number = self.total
+                if self.last_action_tick is not None:
+                    elapsed = time.ticks_diff(now, self.last_action_tick)
+                    remaining = self.cooldown_minutes * 60000 - elapsed
+                    if remaining > 0:
+                        self.notice_minutes = (remaining + 59999) // 60000
+                        self.notice_until = time.ticks_add(now, 5000)
+                        self.notice_version += 1
+                        self.events.append((event_number, False))
+                        return
+                self.last_action_tick = now
                 # GP22 is open drain: 0 sinks to ground; 1 releases the line.
+                gap_ms = self.pulse_gap_ms
                 for pulse in range(2):
                     self.pulse_output.value(0)
                     try:
@@ -305,7 +346,14 @@ class ButtonA:
                     finally:
                         self.pulse_output.value(1)
                     if pulse == 0:
-                        time.sleep_ms(500)
+                        remaining = gap_ms
+                        while remaining > 0:
+                            step = min(remaining, 100)
+                            time.sleep_ms(step)
+                            remaining -= step
+                            feed_watchdog()
+                # Both GP22 pulses completed; actual liquid delivery is not sensed.
+                self.events.append((event_number, True))
 
 
 def main():
@@ -333,9 +381,7 @@ def main():
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
     button = ButtonA(pulse_output)
     boot_id = binascii.hexlify(os.urandom(8)).decode()
-    sent_presses = 0
     pending_event = None
-    pending_total = 0
     backlight = PWM(Pin(13))
     backlight.freq(1000)
     backlight.duty_u16(32768)
@@ -358,13 +404,14 @@ def main():
             connect(wlan, lambda status: wifi_indicator(lcd, status))
             clock.sync()
             wifi_indicator(lcd, 'ON')
-            if pending_event is None and button.total > sent_presses:
-                pending_total = sent_presses + 1
-                pending_event = {'button': 'A', 'count': pending_total - sent_presses,
-                                 'event_id': boot_id + '-' + str(pending_total)}
+            if pending_event is None and button.events:
+                number, triggered = button.events[0]
+                pending_event = {'button': 'A', 'count': 1,
+                                 'event_id': boot_id + '-' + str(number),
+                                 'drink_triggered': triggered}
             if pending_event is not None:
                 fetch('POST', button_url, pending_event)
-                sent_presses = pending_total
+                button.events.pop(0)
                 pending_event = None
             data = fetch('GET', MESSAGE_URL)
         except OSError:
@@ -374,6 +421,14 @@ def main():
             wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()
             continue
+        gap = data.get('pulse_gap_ms', 500)
+        if type(gap) is not int or not 0 <= gap <= 5000:
+            raise timestamped_error('Invalid pulse delay received from the app.')
+        button.pulse_gap_ms = gap
+        cooldown = data.get('cooldown_minutes', 0)
+        if type(cooldown) is not int or not 0 <= cooldown <= 1440:
+            raise timestamped_error('Invalid waiting period received from the app.')
+        button.cooldown_minutes = cooldown
         clock.utc_offset = data.get('utc_offset', 0)
         clock.timezone = data.get('timezone', 'UTC')
         activity = data.get('activity')

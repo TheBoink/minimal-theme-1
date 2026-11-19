@@ -9,6 +9,7 @@ class Form1(Form1Template):
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
         self.preview.text = 'Hello, little world.'
         self._chart_signature = None
+        self._settings_key = None
         self.activity_chart.layout = {
             'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed',
             'font': {'color': '#263a32'}, 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90},
@@ -67,12 +68,30 @@ class Form1(Form1Template):
             self.activity_chart.data = []
             self.chart_summary.text = 'Enter your pairing key to see 10-minute activity.'
             self._chart_signature = None
+            self._settings_key = None
+            self.cooldown_input.text = ''
+            self.cooldown_status.text = 'Enter your pairing key to load the waiting period.'
+            self.pulse_gap_input.text = ''
+            self.pulse_gap_status.text = 'Enter your pairing key to load the saved delay.'
             return
         self.button_timer.interval = 0
         try:
             result = anvil.server.call('display_status', key)
             if not result['ok']:
                 self.button_status.text = result['message']
+                if self._settings_key != key:
+                    self.pulse_gap_input.text = ''
+                    self.cooldown_input.text = ''
+                    self.cooldown_status.text = result['message']
+                    self.pulse_gap_status.text = result['message']
+                    self._settings_key = None
+            elif self._settings_key != key:
+                self._settings_key = key
+                self.cooldown_input.text = str(result['cooldown_minutes'])
+                self.cooldown_status.text = 'Saved waiting period loaded.'
+                self.pulse_gap_input.text = str(result['pulse_gap_ms'])
+                self.pulse_gap_status.text = 'Saved delay loaded.'
+                self.button_status.text = 'Waiting for button A…' if not result['button_count'] else 'Button A was pressed! · ' + str(int(result['button_count'])) + ' presses · Last: ' + result['button_at'].strftime('%d %b %H:%M:%S')
             elif result['button_count']:
                 self.button_status.text = 'Button A was pressed! · ' + str(int(result['button_count'])) + ' presses · Last: ' + result['button_at'].strftime('%d %b %H:%M:%S')
             else:
@@ -106,3 +125,44 @@ class Form1(Form1Template):
             self.chart_timer.interval = 30
 
 
+
+
+    @handle('pulse_gap_save', 'click')
+    def save_pulse_gap(self, **event_args):
+        key = (self.key_box.text or '').strip()
+        text = (self.pulse_gap_input.text or '').strip()
+        if not key:
+            self.pulse_gap_status.text = 'Enter your pairing key first.'
+            return
+        if not text.isdigit() or len(text) > 4 or int(text) > 5000:
+            self.pulse_gap_status.text = 'Enter a whole number from 0 to 5000 milliseconds.'
+            return
+        self.pulse_gap_save.enabled = False
+        try:
+            result = anvil.server.call('set_pulse_gap', key, int(text))
+            if result['ok']:
+                self._settings_key = key
+                self.pulse_gap_status.text = 'Saved. The Pico will use it after its next successful sync.'
+            else:
+                self.pulse_gap_status.text = result['message']
+        finally:
+            self.pulse_gap_save.enabled = True
+
+
+    @handle('cooldown_save', 'click')
+    def save_cooldown(self, **event_args):
+        key = (self.key_box.text or '').strip()
+        text = (self.cooldown_input.text or '').strip()
+        if not key:
+            self.cooldown_status.text = 'Enter your pairing key first.'
+            return
+        if not text.isdigit() or len(text) > 4 or int(text) > 1440:
+            self.cooldown_status.text = 'Enter a whole number from 0 to 1440 minutes.'
+            return
+        self.cooldown_save.enabled = False
+        try:
+            result = anvil.server.call('set_cooldown', key, int(text))
+            self.cooldown_status.text = ('Saved. The Pico will use it after its next successful sync.'
+                                         if result['ok'] else result['message'])
+        finally:
+            self.cooldown_save.enabled = True

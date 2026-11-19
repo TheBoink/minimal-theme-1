@@ -13,6 +13,16 @@
         <anvil-component type="Button" name="send_button" prop:text="Send to display →"></anvil-component>
         <anvil-component type="Label" name="status" prop:text="Ready to pair · No device connected"></anvil-component>
         <anvil-component type="Button" name="refresh_button" prop:text="Check connection &amp; delivery" prop:role="secondary-button"></anvil-component>
+        <h2>Time between pulses</h2>
+        <p class="display-note">Milliseconds between the two 100 ms pulses (0–5000).</p>
+        <anvil-component type="TextBox" name="pulse_gap_input" prop:placeholder="500"></anvil-component>
+        <anvil-component type="Button" name="pulse_gap_save" prop:text="Save pulse delay" prop:role="secondary-button"></anvil-component>
+        <anvil-component type="Label" name="pulse_gap_status" prop:text="Enter your pairing key to load the saved delay."></anvil-component>
+        <h2>Waiting period between drinks</h2>
+        <p class="display-note">Minutes after an action before the next one is allowed (0–1440).</p>
+        <anvil-component type="TextBox" name="cooldown_input" prop:placeholder="0"></anvil-component>
+        <anvil-component type="Button" name="cooldown_save" prop:text="Save waiting period" prop:role="secondary-button"></anvil-component>
+        <anvil-component type="Label" name="cooldown_status" prop:text="Enter your pairing key to load the waiting period."></anvil-component>
         <h2>From your Pico</h2>
         <anvil-component type="Label" name="button_status" prop:text="Waiting for button A…"></anvil-component>
         <anvil-component type="Timer" name="button_timer" prop:interval="2"></anvil-component>

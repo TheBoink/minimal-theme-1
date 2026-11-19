@@ -3,7 +3,8 @@ db_schema:
   button_presses:
     client: none
     columns:
-    - admin_ui: {}
+    - admin_ui: {order: 0, width: 208}
+      client_hidden: false
       name: display
       target: displays
       type: link_single
@@ -19,6 +20,10 @@ db_schema:
     - admin_ui: {}
       name: press_in_event
       type: number
+    - admin_ui: {}
+      name: drink_triggered
+      type: bool
+    indexes: []
     server: full
     title: Button Presses
   displays:
@@ -48,6 +53,12 @@ db_schema:
     - admin_ui: {}
       name: button_event_id
       type: string
+    - admin_ui: {}
+      name: pulse_gap_ms
+      type: number
+    - admin_ui: {}
+      name: cooldown_minutes
+      type: number
     server: full
     title: Displays
 name: Minimal Theme 1

@@ -18,7 +18,7 @@ def _device(key):
 def create_display():
     key = secrets.token_urlsafe(32)
     app_tables.displays.add_row(key_hash=hashlib.sha256(key.encode()).hexdigest(),
-                            message='', revision=0, displayed_revision=0)
+                            message='', revision=0, displayed_revision=0, pulse_gap_ms=500, cooldown_minutes=0)
     return key
 
 
@@ -31,7 +31,40 @@ def display_status(key):
     return {'ok': True, 'online': bool(seen and seen > datetime.now(timezone.utc) - timedelta(seconds=20)),
             'message': row['message'], 'revision': row['revision'],
             'displayed_revision': row['displayed_revision'],
-            'button_count': row['button_count'] or 0, 'button_at': row['button_at']}
+            'button_count': row['button_count'] or 0, 'button_at': row['button_at'],
+            'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row)}
+
+
+def _pulse_gap(row):
+    value = row['pulse_gap_ms']
+    return 500 if value is None else int(value)
+
+
+@anvil.server.callable
+def set_pulse_gap(key, value):
+    row = _device(key)
+    if row is None:
+        return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
+    if type(value) is not int or not 0 <= value <= 5000:
+        return {'ok': False, 'message': 'Enter a whole number from 0 to 5000 milliseconds.'}
+    row['pulse_gap_ms'] = value
+    return {'ok': True}
+
+
+def _cooldown(row):
+    value = row['cooldown_minutes']
+    return 0 if value is None else int(value)
+
+
+@anvil.server.callable
+def set_cooldown(key, value):
+    row = _device(key)
+    if row is None:
+        return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
+    if type(value) is not int or not 0 <= value <= 1440:
+        return {'ok': False, 'message': 'Enter a whole number from 0 to 1440 minutes.'}
+    row['cooldown_minutes'] = value
+    return {'ok': True}
 
 
 @anvil.server.callable
@@ -86,7 +119,7 @@ def device_message(**params):
     offset = local_now.utcoffset()
     assert offset is not None
     return anvil.server.HttpResponse(200, json.dumps({'utc_offset': int(offset.total_seconds()),
-                                                      'timezone': local_now.tzname(), 'text': row['message'], 'revision': row['revision'],
+                                                      'timezone': local_now.tzname(), 'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row), 'text': row['message'], 'revision': row['revision'],
                                                       'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 
@@ -118,13 +151,17 @@ def device_button(**params):
             or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000
             or not isinstance(data.get('event_id'), str) or not 1 <= len(data['event_id']) <= 80):
         return anvil.server.HttpResponse(400, 'Invalid button event')
+    # Older firmware omits the outcome; it cannot be reconstructed reliably.
+    outcome = data.get('drink_triggered')
+    if ('drink_triggered' in data and (type(outcome) is not bool or data['count'] != 1)):
+        return anvil.server.HttpResponse(400, 'Invalid drink outcome')
     # A permanent event lookup also protects against old retries arriving later.
     if app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1) is None:
         received_at = datetime.now(timezone.utc)
         for number in range(1, data['count'] + 1):
             app_tables.button_presses.add_row(
                 display=row, button='A', received_at=received_at,
-                event_id=data['event_id'], press_in_event=number)
+                event_id=data['event_id'], press_in_event=number, drink_triggered=outcome)
         row.update(button_count=(row['button_count'] or 0) + data['count'],
                    button_at=received_at, button_event_id=data['event_id'],
                    last_seen=received_at)
