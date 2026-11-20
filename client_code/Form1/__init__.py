@@ -166,3 +166,25 @@ class Form1(Form1Template):
                                          if result['ok'] else result['message'])
         finally:
             self.cooldown_save.enabled = True
+
+
+    @handle('firmware_publish', 'click')
+    def publish_firmware(self, **event_args):
+        key = (self.key_box.text or '').strip()
+        signing_key = self.firmware_key.text or ''
+        if not key:
+            self.firmware_status.text = 'Enter your pairing key first.'
+            return
+        if self.firmware_file.file is None:
+            self.firmware_status.text = 'Choose a firmware file first.'
+            return
+        self.firmware_publish.enabled = False
+        try:
+            result = anvil.server.call('publish_firmware', key, self.firmware_file.file, signing_key)
+            if result['ok']:
+                self.firmware_status.text = 'Firmware published. The Pico will check for it while connected.'
+                self.firmware_key.text = ''
+            else:
+                self.firmware_status.text = result['message']
+        finally:
+            self.firmware_publish.enabled = True

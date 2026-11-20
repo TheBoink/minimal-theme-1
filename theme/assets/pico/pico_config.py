@@ -11,3 +11,7 @@ PAIRING_KEY = 'YOUR_PAIRING_KEY'
 POLL_SECONDS = 3
 WATCHDOG_TIMEOUT_MS = 8000
 HTTP_TIMEOUT_SECONDS = 3
+
+# Create a long random secret and keep it private. Use the same value when
+# publishing a firmware file in the Anvil app. Empty disables Wi-Fi updates.
+OTA_SIGNING_KEY = ''

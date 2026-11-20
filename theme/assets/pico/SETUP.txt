@@ -13,7 +13,7 @@ First install or migration from the old main.py:
    lcd_driver.py. The template also contains optional timing settings.
 3. Save the updated main.py to the Pico. Keep your existing lcd_driver.py and
    installed requests and ntptime packages. Restart the Pico. Later firmware
-   updates only need a new main.py; keep your private pico_config.py.
+   updates use the Wi-Fi workflow below; keep your private pico_config.py.
 
 For a new Pico, install MicroPython for Pico 2 W, select it in Thonny, install
 requests and ntptime on the Pico, and save Waveshare's Pico-LCD-1.3 MicroPython
@@ -136,3 +136,42 @@ older firmware have an unknown (blank) outcome. New firmware queues each press
 with its own outcome until the app acknowledges it, including during temporary
 network outages. Queued events remain in RAM and are lost on a Pico restart.
 Install the updated main.py and keep your existing pico_config.py.
+
+
+WI-FI FIRMWARE UPDATES
+One-time installation over USB in Thonny:
+1. Back up the Pico's existing main.py and private pico_config.py locally.
+2. Copy the supplied main.py, pico_app.py, and ota_updater.py to the Pico root.
+   The new main.py is the recovery loader. pico_app.py is the running app.
+   Retain lcd_driver.py, startup_logo.rgb565, and the existing pico_config.py.
+3. Add OTA_SIGNING_KEY to the Pico's private pico_config.py. It must be a
+   unique random ASCII string of 32–128 characters. On your computer, generate
+   one privately with Python's secrets.token_hex(32). Copy it into pico_config.py
+   and retain a private copy. Do not put it in the shared Anvil asset template,
+   chat, source control, or device output. It is separate from the pairing key.
+4. Restart the Pico and check the LCD, GP14 button, GP22 output, and app sync.
+
+To publish a later firmware version:
+1. Edit pico_app.py and download a copy to your computer. Preserve its main()
+   entry point and ota_updater.confirm() after the first successful app poll.
+   Upload only a reviewed Pico application file from a source you trust.
+2. In the app, enter the Pico's pairing key, select the new pico_app.py under
+   Pico firmware update, enter the same OTA_SIGNING_KEY, and click Publish.
+   The signing key is used to sign the file and is not stored in the Data Table.
+3. The connected Pico checks approximately once per minute. It verifies the
+   signature, stages the file, saves the previous app, and restarts. It waits
+   until pending button events are sent and any configured waiting period has
+   elapsed. During restart GP22 is released, the RAM countdown resets, and any
+   press occurring during update/restart may not be recorded.
+4. The recovery loader accepts the update after its first successful app poll.
+   If the trial resets or fails before then, the next boot restores the previous
+   app. A rejected version is not retried until different firmware is published.
+   An error after the first successful poll will not automatically roll back.
+
+Wi-Fi update requires network access and the configured signing key. A missing
+or incorrect key disables/rejects installation; check the Thonny console. The
+signature protects against altered firmware even if transport is intercepted,
+but replay of a previously signed version is not prevented. Keep the signing key
+private. Existing requests-based Pico HTTP traffic does not validate TLS server
+certificates, so pairing keys and app messages need a trusted network. If the
+loader itself, storage, or both firmware copies are damaged, recover over USB.

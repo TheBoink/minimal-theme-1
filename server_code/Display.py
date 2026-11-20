@@ -1,8 +1,12 @@
 """Single-display mailbox. Pairing keys authorize both controller and device."""
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+import ast
+import base64
 import hashlib
+import hmac
 import secrets
+import anvil
 import anvil.server
 import anvil.tables
 from anvil.tables import app_tables, query as q
@@ -79,6 +83,44 @@ def send_message(key, message):
         return {'ok': False, 'message': 'Use up to 240 plain English characters (ASCII), including line breaks.'}
     row.update(message=message, revision=row['revision'] + 1)
     return {'ok': True}
+
+
+@anvil.server.callable
+def publish_firmware(key, media, signing_key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Enter a valid pairing key first.'}
+    if not isinstance(signing_key, str) or not 32 <= len(signing_key) <= 128 or not signing_key.isascii():
+        return {'ok': False, 'message': 'Enter the same 32–128 character ASCII update signing key stored on the Pico.'}
+    if not isinstance(media, anvil.Media) or media.length == 0 or media.length > 65536:
+        return {'ok': False, 'message': 'Choose a Python firmware file up to 64 KB.'}
+    data = media.get_bytes()
+    try:
+        source = data.decode('utf-8')
+        tree = ast.parse(source)
+    except (UnicodeDecodeError, SyntaxError):
+        return {'ok': False, 'message': 'The firmware must be valid UTF-8 Python code.'}
+    if not any(isinstance(node, ast.FunctionDef) and node.name == 'main' for node in tree.body):
+        return {'ok': False, 'message': 'The firmware must contain a top-level main function.'}
+    signature = hmac.new(signing_key.encode('utf-8'), data, hashlib.sha256).hexdigest()
+    digest = hashlib.sha256(data).hexdigest()
+    display.update(firmware=anvil.BlobMedia('text/x-python', data, name='pico_app.py'),
+                   firmware_signature=signature, firmware_hash=digest)
+    return {'ok': True, 'digest': digest[:12]}
+
+
+@anvil.server.route('/device/firmware', methods=['GET'])
+def device_firmware(**params):
+    display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
+    if display is None:
+        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    media = display['firmware']
+    if media is None:
+        return anvil.server.HttpResponse(204, '')
+    import json
+    body = json.dumps({'data': base64.b64encode(media.get_bytes()).decode('ascii'),
+                       'signature': display['firmware_signature']})
+    return anvil.server.HttpResponse(200, body, headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")

@@ -59,6 +59,15 @@ db_schema:
     - admin_ui: {}
       name: cooldown_minutes
       type: number
+    - admin_ui: {}
+      name: firmware
+      type: media
+    - admin_ui: {}
+      name: firmware_signature
+      type: string
+    - admin_ui: {}
+      name: firmware_hash
+      type: string
     server: full
     title: Displays
 name: Minimal Theme 1
