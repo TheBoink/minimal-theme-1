@@ -12,6 +12,27 @@ import anvil.tables
 from anvil.tables import app_tables, query as q
 
 
+DEFAULT_WAITING_MESSAGE = 'Even geduld voor de volgende borrel (nog {minutes} minuten).'
+
+
+def _wrap_waiting_message(text):
+    lines = []
+    for paragraph in text.split('\n'):
+        while len(paragraph) > 15:
+            split = paragraph.rfind(' ', 0, 16)
+            if split <= 0:
+                split = 15
+            lines.append(paragraph[:split])
+            paragraph = paragraph[split:].lstrip(' ')
+        lines.append(paragraph)
+    return lines
+
+
+def _waiting_message(row):
+    value = row['waiting_message']
+    return DEFAULT_WAITING_MESSAGE if value is None else value
+
+
 def _device(key):
     if not isinstance(key, str) or len(key) != 43:
         return None
@@ -36,7 +57,18 @@ def display_status(key):
             'message': row['message'], 'revision': row['revision'],
             'displayed_revision': row['displayed_revision'],
             'button_count': row['button_count'] or 0, 'button_at': row['button_at'],
-            'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row)}
+            'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row),
+            'waiting_message': _waiting_message(row),
+            'firmware_published_at': _firmware_publication_text(row)}
+
+
+def _firmware_publication_text(row):
+    published = row['firmware_published_at']
+    if published is not None:
+        return published.astimezone(AMSTERDAM).strftime('%d %b %Y %H:%M:%S %Z')
+    if row['firmware_hash']:
+        return 'Publication time unavailable for existing firmware'
+    return 'No firmware published yet'
 
 
 def _pulse_gap(row):
@@ -72,16 +104,17 @@ def set_cooldown(key, value):
 
 
 @anvil.server.callable
-@anvil.tables.in_transaction
-def send_message(key, message):
+def set_waiting_message(key, value):
     row = _device(key)
     if row is None:
-        return {'ok': False, 'message': 'Create or enter a pairing key first.'}
-    if not isinstance(message, str) or not message.strip():
-        return {'ok': False, 'message': 'Enter a message first.'}
-    if len(message) > 240 or any(ord(c) < 32 and c != '\n' or ord(c) > 126 for c in message):
-        return {'ok': False, 'message': 'Use up to 240 plain English characters (ASCII), including line breaks.'}
-    row.update(message=message, revision=row['revision'] + 1)
+        return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
+    if not isinstance(value, str) or value.count('{minutes}') != 1:
+        return {'ok': False, 'message': 'Include {minutes} exactly once in the message.'}
+    if len(value) > 160 or any(not (32 <= ord(c) <= 126 or c == '\n') for c in value):
+        return {'ok': False, 'message': 'Use up to 160 basic English characters and line breaks.'}
+    if any(len(_wrap_waiting_message(value.replace('{minutes}', n))) > 5 for n in ('1', '10', '100', '1440')):
+        return {'ok': False, 'message': 'Message is too long for the LCD. Shorten it to fit five lines.'}
+    row['waiting_message'] = value
     return {'ok': True}
 
 
@@ -104,9 +137,12 @@ def publish_firmware(key, media, signing_key):
         return {'ok': False, 'message': 'The firmware must contain a top-level main function.'}
     signature = hmac.new(signing_key.encode('utf-8'), data, hashlib.sha256).hexdigest()
     digest = hashlib.sha256(data).hexdigest()
+    published_at = datetime.now(timezone.utc)
     display.update(firmware=anvil.BlobMedia('text/x-python', data, name='pico_app.py'),
-                   firmware_signature=signature, firmware_hash=digest)
-    return {'ok': True, 'digest': digest[:12]}
+                   firmware_signature=signature, firmware_hash=digest,
+                   firmware_published_at=published_at)
+    return {'ok': True, 'digest': digest[:12],
+            'firmware_published_at': published_at.astimezone(AMSTERDAM).strftime('%d %b %Y %H:%M:%S %Z')}
 
 
 @anvil.server.route('/device/firmware', methods=['GET'])
@@ -161,7 +197,7 @@ def device_message(**params):
     offset = local_now.utcoffset()
     assert offset is not None
     return anvil.server.HttpResponse(200, json.dumps({'utc_offset': int(offset.total_seconds()),
-                                                      'timezone': local_now.tzname(), 'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row), 'text': row['message'], 'revision': row['revision'],
+                                                      'timezone': local_now.tzname(), 'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row), 'waiting_message': _waiting_message(row), 'text': row['message'], 'revision': row['revision'],
                                                       'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 

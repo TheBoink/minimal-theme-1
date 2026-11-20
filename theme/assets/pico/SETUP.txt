@@ -77,7 +77,7 @@ Install updated main.py; your existing pico_config.py does not need changes.
 
 STARTUP LOGO
 After the five-second maintenance delay and display initialization, the LCD
-shows the PICO POST logo for 10 seconds, then connects and shows the normal
+shows the Drink Buddy wordmark for 10 seconds, then connects and shows the normal
 screen. The watchdog is fed during the logo. The external button remains active
 during the logo and can trigger its GP22 pulse. Install the new main.py and
 keep the existing private pico_config.py.
@@ -94,7 +94,7 @@ CUSTOM STARTUP IMAGE
 
 The converter produces 115,200 bytes, 240x240 RGB565 with high byte first.
 The Pico reads it directly into the LCD framebuffer in small chunks. With no
-image file the built-in PICO POST wordmark is shown. An image with the wrong
+image file the built-in Drink Buddy wordmark is shown. An image with the wrong
 file size raises an error instead of displaying incomplete data.
 The external button remains active while the startup screen is showing.
 
@@ -173,5 +173,11 @@ or incorrect key disables/rejects installation; check the Thonny console. The
 signature protects against altered firmware even if transport is intercepted,
 but replay of a previously signed version is not prevented. Keep the signing key
 private. Existing requests-based Pico HTTP traffic does not validate TLS server
-certificates, so pairing keys and app messages need a trusted network. If the
+certificates, so pairing keys and app traffic needs a trusted network. If the
 loader itself, storage, or both firmware copies are damaged, recover over USB.
+
+LCD WI-FI ICON
+The small Wi-Fi icon in the top-right shows connection status. A plain white
+icon means connected, a red slash means disconnected, and a question mark
+means waiting or connecting. The icon and clock pause while the screensaver
+is showing. Publish the updated pico_app.py using the firmware update section.

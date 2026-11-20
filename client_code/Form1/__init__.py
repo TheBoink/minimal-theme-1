@@ -7,7 +7,6 @@ class Form1(Form1Template):
     def __init__(self, **properties):
         super().__init__(**properties)
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
-        self.preview.text = 'Hello, little world.'
         self._chart_signature = None
         self._settings_key = None
         self.activity_chart.layout = {
@@ -27,23 +26,6 @@ class Form1(Form1Template):
         finally:
             self.pair_button.enabled = True
 
-    @handle('message_box', 'change')
-    def preview_message(self, **event_args):
-        text = self.message_box.text or ''
-        self.preview.text = text or 'Your message here'
-        self.counter.text = str(len(text)) + ' / 240 characters'
-
-    @handle('send_button', 'click')
-    def send(self, **event_args):
-        self.send_button.enabled = False
-        try:
-            result = anvil.server.call('send_message', self.key_box.text.strip(), self.message_box.text)
-            self.status.text = 'Queued. Waiting for the Pico to confirm display.' if result['ok'] else result['message']
-            if result['ok']:
-                self.refresh_status()
-        finally:
-            self.send_button.enabled = True
-
     @handle('refresh_button', 'click')
     def refresh_status(self, **event_args):
         if not self.key_box.text.strip():
@@ -54,10 +36,7 @@ class Form1(Form1Template):
             self.status.text = result['message']
             return
         connection = 'Pico online' if result['online'] else 'Pico offline / not connected'
-        delivery = 'No messages sent yet'
-        if result['revision']:
-            delivery = 'Display confirmed' if result['displayed_revision'] == result['revision'] else 'Latest message queued'
-        self.status.text = connection + ' · ' + delivery
+        self.status.text = connection
 
 
     @handle('button_timer', 'tick')
@@ -69,6 +48,9 @@ class Form1(Form1Template):
             self.chart_summary.text = 'Enter your pairing key to see 10-minute activity.'
             self._chart_signature = None
             self._settings_key = None
+            self.firmware_published_label.text = 'Enter your pairing key to see the publication time.'
+            self.waiting_message_input.text = ''
+            self.waiting_message_status.text = 'Enter your pairing key to load the waiting message.'
             self.cooldown_input.text = ''
             self.cooldown_status.text = 'Enter your pairing key to load the waiting period.'
             self.pulse_gap_input.text = ''
@@ -78,15 +60,20 @@ class Form1(Form1Template):
         try:
             result = anvil.server.call('display_status', key)
             if not result['ok']:
+                self.firmware_published_label.text = result['message']
                 self.button_status.text = result['message']
                 if self._settings_key != key:
                     self.pulse_gap_input.text = ''
                     self.cooldown_input.text = ''
+                    self.waiting_message_input.text = ''
+                    self.waiting_message_status.text = result['message']
                     self.cooldown_status.text = result['message']
                     self.pulse_gap_status.text = result['message']
                     self._settings_key = None
             elif self._settings_key != key:
                 self._settings_key = key
+                self.waiting_message_input.text = result['waiting_message']
+                self.waiting_message_status.text = 'Saved waiting message loaded.'
                 self.cooldown_input.text = str(result['cooldown_minutes'])
                 self.cooldown_status.text = 'Saved waiting period loaded.'
                 self.pulse_gap_input.text = str(result['pulse_gap_ms'])
@@ -96,6 +83,9 @@ class Form1(Form1Template):
                 self.button_status.text = 'Button A was pressed! · ' + str(int(result['button_count'])) + ' presses · Last: ' + result['button_at'].strftime('%d %b %H:%M:%S')
             else:
                 self.button_status.text = 'Waiting for button A…'
+            if result['ok']:
+                published = result['firmware_published_at']
+                self.firmware_published_label.text = 'Firmware: ' + published
             signature = (key, result.get('button_count'))
             if signature != self._chart_signature:
                 self.refresh_activity_chart()
@@ -168,6 +158,21 @@ class Form1(Form1Template):
             self.cooldown_save.enabled = True
 
 
+    @handle('waiting_message_save', 'click')
+    def save_waiting_message(self, **event_args):
+        key = (self.key_box.text or '').strip()
+        if not key:
+            self.waiting_message_status.text = 'Enter your pairing key first.'
+            return
+        self.waiting_message_save.enabled = False
+        try:
+            result = anvil.server.call('set_waiting_message', key, self.waiting_message_input.text or '')
+            self.waiting_message_status.text = ('Saved. The Pico will use it after its next successful sync.'
+                                                if result['ok'] else result['message'])
+        finally:
+            self.waiting_message_save.enabled = True
+
+
     @handle('firmware_publish', 'click')
     def publish_firmware(self, **event_args):
         key = (self.key_box.text or '').strip()
@@ -183,6 +188,7 @@ class Form1(Form1Template):
             result = anvil.server.call('publish_firmware', key, self.firmware_file.file, signing_key)
             if result['ok']:
                 self.firmware_status.text = 'Firmware published. The Pico will check for it while connected.'
+                self.firmware_published_label.text = 'Firmware: ' + result['firmware_published_at']
                 self.firmware_key.text = ''
             else:
                 self.firmware_status.text = result['message']

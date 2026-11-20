@@ -47,22 +47,6 @@ def feed_watchdog():
         watchdog.feed()
 
 
-def wrap_text(text, width=27):
-    """Preserve newlines, wrap words, and split words wider than the LCD."""
-    lines = []
-    for paragraph in text.split('\n'):
-        while len(paragraph) > width:
-            split = paragraph.rfind(' ', 0, width + 1)
-            if split <= 0:
-                split = width
-            lines.append(paragraph[:split])
-            paragraph = paragraph[split:]
-            if paragraph.startswith(' '):
-                paragraph = paragraph[1:]
-        lines.append(paragraph)
-    return lines
-
-
 def fetch(method, url, payload=None):
     feed_watchdog()
     response = requests.request(method, url,
@@ -104,7 +88,7 @@ class DisplayClock:
 
     def label(self):
         if not self.synced:
-            return 'UTC --:--:-- (syncing)'
+            return 'UTC --:--:--'
         now = time.gmtime(time.time() + self.utc_offset)
         return '%s %02d:%02d:%02d' % (self.timezone, now[3], now[4], now[5])
 
@@ -113,17 +97,31 @@ clock = DisplayClock()
 
 
 def clock_indicator(lcd):
-    lcd.fill_rect(12, 28, 216, 10, 0)
-    lcd.text(clock.label(), 12, 28, 0xffff)
+    lcd.fill_rect(8, 220, 224, 18, 0)
+    large_text(lcd, clock.label(), 8, 221)
 
 
 def wifi_indicator(lcd, status):
     update_screensaver(lcd)
     if screensaver_active:
         return
-    # Reserve the right side of the header; never cover message text.
-    lcd.fill_rect(140, 6, 100, 16, 0)
-    lcd.text('WIFI:' + status, 140, 10, 0xffff)
+    # Wi-Fi arcs in the top-right corner, alongside the title.
+    lcd.fill_rect(196, 2, 44, 20, 0)
+    color = 0xffff
+    lcd.line(200, 7, 206, 3, color)
+    lcd.line(206, 3, 216, 3, color)
+    lcd.line(216, 3, 222, 7, color)
+    lcd.line(204, 11, 208, 8, color)
+    lcd.line(208, 8, 214, 8, color)
+    lcd.line(214, 8, 218, 11, color)
+    lcd.line(208, 14, 211, 12, color)
+    lcd.line(211, 12, 214, 14, color)
+    lcd.fill_rect(210, 17, 3, 3, color)
+    if status == 'OFF':
+        lcd.line(200, 19, 222, 2, 0x00f8)
+        lcd.line(201, 19, 223, 2, 0x00f8)
+    elif status != 'ON':
+        lcd.text('?', 229, 8, color)
     clock_indicator(lcd)
     lcd.show()
 
@@ -141,6 +139,22 @@ def wait_with_wifi(lcd, wlan, seconds):
             previous = state
         feed_watchdog()
         time.sleep_ms(250)
+
+
+DEFAULT_WAITING_MESSAGE = 'Even geduld voor de volgende borrel (nog {minutes} minuten).'
+
+
+def wrap_waiting_message(text):
+    lines = []
+    for paragraph in text.split('\n'):
+        while len(paragraph) > 15:
+            split = paragraph.rfind(' ', 0, 16)
+            if split <= 0:
+                split = 15
+            lines.append(paragraph[:split])
+            paragraph = paragraph[split:].lstrip(' ')
+        lines.append(paragraph)
+    return lines
 
 
 def large_text(lcd, text, x, y):
@@ -167,7 +181,7 @@ def render_logo(lcd):
         lcd.rect(36, 56, 168, 115, 0xffff)
         lcd.fill_rect(105, 75, 30, 6, 0xffff)
         lcd.fill_rect(117, 63, 6, 30, 0xffff)
-        large_text(lcd, 'PICO POST', 48, 108)
+        large_text(lcd, 'Drink Buddy', 32, 108)
         lcd.text('CONNECTING YOUR WORLD', 36, 147, 0xffff)
     else:
         try:
@@ -237,10 +251,10 @@ def activity_color(count):
 def draw_activity(lcd):
     """Oldest day first, today last; each with 12 two-hour boxes."""
     if activity is None:
-        lcd.text('Activity: syncing...', 4, 44, 0xffff)
+        lcd.text('Activity: syncing...', 4, 50, 0xffff)
         return
     for row, day in enumerate(activity.get('days', [activity])[::-1]):
-        y = 42 + row * 20
+        y = 48 + row * 20
         large_text(lcd, day['date'], 4, y)
         counts = day.get('counts')
         for index, occupied in enumerate(day['slots']):
@@ -249,27 +263,25 @@ def draw_activity(lcd):
             lcd.fill_rect(x, y, 9, 16, activity_color(count))
 
 
-def draw(lcd, lines, page, total, wifi_status='WAIT', app_status=None):
+def draw(lcd, wifi_status='WAIT', app_status=None):
     global screen_last_draw
-    screen_last_draw = (lines, page, total, wifi_status, app_status)
+    screen_last_draw = (wifi_status, app_status)
     update_screensaver(lcd)
     if screensaver_active:
         return
     lcd.fill(0)
-    lcd.text('PICO POST', 12, 10, 0xffff)
-    lcd.hline(12, 25, 216, 0xffff)
+    large_text(lcd, 'Drink Buddy', 8, 4)
+    lcd.hline(8, 44, 224, 0xffff)
+    lcd.hline(8, 216, 224, 0xffff)
     draw_activity(lcd)
-    for index, line in enumerate(lines[page * 15:(page + 1) * 15]):
-        lcd.text(line, 12, 102 + index * 8, 0xffff)
-    lcd.text('%d / %d' % (page + 1, total), 12, 226, 0xffff)
+    lcd.hline(8, 106, 224, 0xffff)
     if app_status:
-        lcd.text(app_status, 100, 226, 0xffff)
+        lcd.text(app_status, 100, 204, 0xffff)
     if screen_button is not None and screen_notice_visible:
-        lcd.fill_rect(0, 100, 240, 92, 0)
-        large_text(lcd, 'No drink yet,', 8, 104)
-        large_text(lcd, 'please wait', 8, 125)
-        large_text(lcd, 'for ' + str(screen_button.notice_minutes), 8, 146)
-        large_text(lcd, 'minutes', 8, 167)
+        lcd.fill_rect(0, 108, 240, 94, 0)
+        message = screen_button.waiting_message.replace('{minutes}', str(screen_button.notice_minutes))
+        for index, line in enumerate(wrap_waiting_message(message)):
+            large_text(lcd, line, (240 - len(line) * 16) // 2, 109 + index * 19)
     wifi_indicator(lcd, wifi_status)
 
 
@@ -301,6 +313,7 @@ class ButtonA:
         self.pulse_active = False
         self.pulse_gap_ms = 500
         self.cooldown_minutes = 0
+        self.waiting_message = DEFAULT_WAITING_MESSAGE
         self.last_action_tick = None
         self.notice_until = None
         self.notice_minutes = 0
@@ -384,7 +397,6 @@ def main():
     watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
     feed_watchdog()
     ntptime.timeout = 1
-    ack_url = MESSAGE_URL[:-len('/message')] + '/ack'
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
     firmware_url = MESSAGE_URL[:-len('/message')] + '/firmware'
     ota_key = getattr(pico_config, 'OTA_SIGNING_KEY', '')
@@ -401,13 +413,8 @@ def main():
     screen_button = button
     screen_last_count = button.total
     screen_last_press = time.ticks_ms()
-    draw(lcd, ['Connecting to Wi-Fi...'], 0, 1)
+    draw(lcd)
     wlan = network.WLAN(network.STA_IF)
-    current_revision = None
-    acknowledged_revision = None
-    lines = ['Waiting for a message...']
-    page = 0
-    pages = 1
     while True:
         feed_watchdog()
         try:
@@ -427,7 +434,7 @@ def main():
         except OSError:
             # Network outages are expected; preserve the last message and retry.
             print('Network unavailable; retrying in %s seconds.' % POLL_SECONDS)
-            draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
+            draw(lcd, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
             wait_with_wifi(lcd, wlan, POLL_SECONDS)
             gc.collect()
             continue
@@ -455,27 +462,16 @@ def main():
         if type(cooldown) is not int or not 0 <= cooldown <= 1440:
             raise timestamped_error('Invalid waiting period received from the app.')
         button.cooldown_minutes = cooldown
+        message = data.get('waiting_message', DEFAULT_WAITING_MESSAGE)
+        if (not isinstance(message, str) or message.count('{minutes}') != 1 or
+                any(len(wrap_waiting_message(message.replace('{minutes}', n))) > 5 for n in ('1', '10', '100', '1440'))):
+            raise timestamped_error('Invalid waiting message received from the app.')
+        button.waiting_message = message
         clock.utc_offset = data.get('utc_offset', 0)
         clock.timezone = data.get('timezone', 'UTC')
         activity = data.get('activity')
-        revision = data['revision']
-        if revision != current_revision:
-            lines = wrap_text(data['text']) if revision else ['Waiting for a message...']
-            current_revision = revision
-            page = 0
-        pages = max(1, (len(lines) + 14) // 15)
-        draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF')
-        # Let the final page be visible before confirming delivery.
+        draw(lcd, 'ON' if wlan.isconnected() else 'OFF')
         wait_with_wifi(lcd, wlan, POLL_SECONDS)
-        if page == pages - 1 and acknowledged_revision != revision:
-            try:
-                fetch('POST', ack_url, {'revision': revision})
-            except OSError:
-                print('Acknowledgement interrupted; will retry.')
-                draw(lcd, lines, page, pages, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
-            else:
-                acknowledged_revision = revision
-        page = (page + 1) % pages
         gc.collect()
 
 
