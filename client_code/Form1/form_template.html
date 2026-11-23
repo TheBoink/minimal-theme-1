@@ -25,7 +25,7 @@
         <h2>Daily drink limits</h2>
         <p class="display-note">Amsterdam time. Enter one period per line, for example 08:00-15:00 0. Use 24:00 for midnight at the end of a period. Unlisted times have no period limit. Leave blank to clear the schedule.</p>
         <anvil-component type="TextArea" name="drink_schedule_input" prop:placeholder="00:00-08:00 1"></anvil-component>
-        <p class="display-note">Limit message on the LCD. Include {end} for the period's end time.</p>
+        <p class="display-note">Limit message on the LCD. Use {end} for the end time or {period} for the full time range. Add {max} to show the drink limit.</p>
         <anvil-component type="TextArea" name="limit_message_input"></anvil-component>
         <p class="display-note">Drink delivery message on the LCD. Use {drink} for the drink number, {max} for the limit, and {period} for the time range.</p>
         <anvil-component type="TextArea" name="drink_progress_input"></anvil-component>
@@ -38,18 +38,11 @@
         <anvil-component type="Timer" name="button_timer" prop:interval="2"></anvil-component>
     </section>
     <section class="display-compose">
-      <p class="display-kicker">BUTTON A / ACTIVITY</p>
-      <h2>Presses every 10 minutes</h2>
-      <p class="display-note">Last 24 hours in 10-minute intervals · UTC · Current interval is still in progress. Based on server receipt times.</p>
-      <anvil-component type="Label" name="chart_summary" prop:text="Enter your pairing key to see 10-minute activity."></anvil-component>
-      <anvil-component type="Plot" name="activity_chart" prop:height="320"></anvil-component>
-      <anvil-component type="Timer" name="chart_timer" prop:interval="30"></anvil-component>
-    </section>
-    <section class="display-compose">
       <h2>Battery history</h2>
       <p class="display-note">Approximate battery readings received during the last 24 hours, in Amsterdam time.</p>
       <anvil-component type="Label" name="battery_status" prop:text="Enter your pairing key to see battery status."></anvil-component>
       <anvil-component type="Plot" name="battery_chart" prop:height="320"></anvil-component>
+      <anvil-component type="Timer" name="battery_timer" prop:interval="30"></anvil-component>
     </section>
     <section class="display-compose">
       <h2>Pico firmware update</h2>

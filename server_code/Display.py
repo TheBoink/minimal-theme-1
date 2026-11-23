@@ -158,10 +158,11 @@ def set_drink_limits(key, schedule, message, progress=None, checking=None):
         _periods(schedule)
     except ValueError as error:
         return {'ok': False, 'message': str(error)}
-    if (not isinstance(message, str) or len(message) > 160 or message.count('{end}') != 1
+    if (not isinstance(message, str) or len(message) > 160 or message.count('{end}') > 1 or ('{end}' not in message and '{period}' not in message)
             or any(not (32 <= ord(c) <= 126 or c == '\n') for c in message)
-            or len(_wrap_waiting_message(message.replace('{end}', '23:59'))) > 5):
-        return {'ok': False, 'message': 'Include {end} once and use basic characters that fit five LCD lines.'}
+            or any(len(_wrap_waiting_message(message.replace('{end}', '23:59').replace('{max}', maximum).replace('{period}', '15:00-21:00'))) > 5
+                   for maximum in ('0', '99', '999'))):
+        return {'ok': False, 'message': 'Include {end} or {period} and use basic characters that fit five LCD lines.'}
     if progress is None:
         progress = row['drink_progress_message'] or DEFAULT_PROGRESS_MESSAGE
     if (not isinstance(progress, str) or len(progress) > 160
@@ -208,12 +209,15 @@ def _drink_decision(display, now):
                 if press['drink_reserved'] or press['drink_triggered']:
                     used += 1
         end_text = ending.astimezone(AMSTERDAM).strftime('%H:%M')
-        if used >= maximum:
-            return (display['limit_message'] or DEFAULT_LIMIT_MESSAGE).replace('{end}', end_text), ''
         start_text = beginning.astimezone(AMSTERDAM).strftime('%H:%M')
+        period_text = f'{start_text}-{end_text}'
+        if used >= maximum:
+            template = display['limit_message'] or DEFAULT_LIMIT_MESSAGE
+            return (template.replace('{end}', end_text).replace('{max}', str(maximum))
+                    .replace('{period}', period_text)), ''
         template = display['drink_progress_message'] or DEFAULT_PROGRESS_MESSAGE
         return '', (template.replace('{drink}', str(used + 1)).replace('{max}', str(maximum))
-                    .replace('{period}', f'{start_text}-{end_text}'))
+                    .replace('{period}', period_text))
     return '', ''
 
 

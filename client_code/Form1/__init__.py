@@ -7,15 +7,9 @@ class Form1(Form1Template):
     def __init__(self, **properties):
         super().__init__(**properties)
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
-        self._chart_signature = None
+        self._battery_chart_key = None
         self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
         self._settings_key = None
-        self.activity_chart.layout = {
-            'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed',
-            'font': {'color': '#263a32'}, 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90},
-            'xaxis': {'title': '10-minute interval start (UTC)', 'type': 'category', 'tickangle': -45, 'nticks': 8},
-            'yaxis': {'title': 'Button presses', 'rangemode': 'tozero', 'dtick': 1},
-            'showlegend': False}
 
 
     @handle('pair_button', 'click')
@@ -50,11 +44,9 @@ class Form1(Form1Template):
             self.drink_checking_input.text = ''
             self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
-            self.activity_chart.data = []
             self.battery_chart.data = []
             self.battery_status.text = 'Enter your pairing key to see battery status.'
-            self.chart_summary.text = 'Enter your pairing key to see 10-minute activity.'
-            self._chart_signature = None
+            self._battery_chart_key = None
             self._settings_key = None
             self.firmware_running_label.text = 'Enter your pairing key to see the running firmware version.'
             self.firmware_published_label.text = 'Enter your pairing key to see the publication time.'
@@ -107,20 +99,20 @@ class Form1(Form1Template):
                 self.firmware_running_label.text = 'Running firmware: ' + (result['running_firmware_version'] or 'Unknown (Pico has not reported a version)')
                 published = result['firmware_published_at']
                 self.firmware_published_label.text = 'Published firmware: ' + (result['published_firmware_version'] or 'None') + ' · ' + published
-            signature = (key, result.get('button_count'))
-            if signature != self._chart_signature:
-                self.refresh_activity_chart()
-                self._chart_signature = signature
+            signature = key
+            if signature != self._battery_chart_key:
+                self.refresh_battery_chart()
+                self._battery_chart_key = signature
         finally:
             self.button_timer.interval = 2
 
 
-    @handle('chart_timer', 'tick')
-    def refresh_activity_chart(self, **event_args):
+    @handle('battery_timer', 'tick')
+    def refresh_battery_chart(self, **event_args):
         key = self.key_box.text.strip()
         if not key:
             return
-        self.chart_timer.interval = 0
+        self.battery_timer.interval = 0
         try:
             battery = anvil.server.call('battery_history', key)
             if battery['ok']:
@@ -134,18 +126,8 @@ class Form1(Form1Template):
             else:
                 self.battery_chart.data = []
                 self.battery_status.text = battery['message']
-            result = anvil.server.call('ten_minute_button_presses', key)
-            if not result['ok']:
-                self.activity_chart.data = []
-                self.chart_summary.text = result['message']
-                return
-            self.activity_chart.data = [{
-                'type': 'bar', 'x': result['intervals'], 'y': result['counts'],
-                'marker': {'color': '#28543e'},
-                'hovertemplate': '10 minutes from %{x} UTC<br>%{y} presses<extra></extra>'}]
-            self.chart_summary.text = str(result['total']) + ' presses in the displayed 24 hours'
         finally:
-            self.chart_timer.interval = 30
+            self.battery_timer.interval = 30
 
 
 
