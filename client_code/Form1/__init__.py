@@ -44,6 +44,11 @@ class Form1(Form1Template):
     def update_button_status(self, **event_args):
         key = self.key_box.text.strip()
         if not key:
+            self.drink_schedule_input.text = ''
+            self.limit_message_input.text = ''
+            self.drink_progress_input.text = ''
+            self.drink_checking_input.text = ''
+            self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
             self.activity_chart.data = []
             self.battery_chart.data = []
@@ -64,6 +69,11 @@ class Form1(Form1Template):
         try:
             result = anvil.server.call('display_status', key)
             if not result['ok']:
+                self.drink_schedule_input.text = ''
+                self.limit_message_input.text = ''
+                self.drink_progress_input.text = ''
+                self.drink_checking_input.text = ''
+                self.drink_limits_status.text = result['message']
                 self.firmware_running_label.text = result['message']
                 self.firmware_published_label.text = result['message']
                 self.button_status.text = result['message']
@@ -77,6 +87,11 @@ class Form1(Form1Template):
                     self._settings_key = None
             elif self._settings_key != key:
                 self._settings_key = key
+                self.drink_schedule_input.text = result['drink_schedule']
+                self.limit_message_input.text = result['limit_message']
+                self.drink_progress_input.text = result['drink_progress_message']
+                self.drink_checking_input.text = result['drink_checking_message']
+                self.drink_limits_status.text = 'Saved drink limits loaded.'
                 self.waiting_message_input.text = result['waiting_message']
                 self.waiting_message_status.text = 'Saved waiting message loaded.'
                 self.cooldown_input.text = str(result['cooldown_minutes'])
@@ -149,7 +164,6 @@ class Form1(Form1Template):
         try:
             result = anvil.server.call('set_pulse_gap', key, int(text))
             if result['ok']:
-                self._settings_key = key
                 self.pulse_gap_status.text = 'Saved. The Pico will use it after its next successful sync.'
             else:
                 self.pulse_gap_status.text = result['message']
@@ -212,3 +226,16 @@ class Form1(Form1Template):
                 self.firmware_status.text = result['message']
         finally:
             self.firmware_publish.enabled = True
+
+
+    @handle('drink_limits_save', 'click')
+    def save_drink_limits(self, **event_args):
+        key = self.key_box.text.strip()
+        self.drink_limits_save.enabled = False
+        try:
+            result = anvil.server.call('set_drink_limits', key, self.drink_schedule_input.text or '',
+                                       self.limit_message_input.text or '', self.drink_progress_input.text or '',
+                                       self.drink_checking_input.text or '')
+            self.drink_limits_status.text = 'Saved. Applies to the next checked press.' if result['ok'] else result['message']
+        finally:
+            self.drink_limits_save.enabled = True

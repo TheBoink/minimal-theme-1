@@ -2,6 +2,7 @@
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import ast
+import re
 import base64
 import hashlib
 import hmac
@@ -11,6 +12,10 @@ import anvil.server
 import anvil.tables
 from anvil.tables import app_tables, query as q
 
+
+DEFAULT_CHECKING_MESSAGE = 'One moment please...'
+DEFAULT_PROGRESS_MESSAGE = 'This is drink\n{drink} out of a\nmaximum of {max}\n{period}'
+DEFAULT_LIMIT_MESSAGE = 'Drink limit reached until {end}.'
 
 DEFAULT_WAITING_MESSAGE = 'Even geduld voor de volgende borrel (nog {minutes} minuten).'
 
@@ -59,6 +64,10 @@ def display_status(key):
             'button_count': row['button_count'] or 0, 'button_at': row['button_at'],
             'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row),
             'waiting_message': _waiting_message(row),
+            'drink_schedule': row['drink_schedule'] or '',
+            'limit_message': row['limit_message'] or DEFAULT_LIMIT_MESSAGE,
+            'drink_checking_message': row['drink_checking_message'] or DEFAULT_CHECKING_MESSAGE,
+            'drink_progress_message': row['drink_progress_message'] or DEFAULT_PROGRESS_MESSAGE,
             'firmware_published_at': _firmware_publication_text(row),
             'published_firmware_version': row['firmware_hash'][:12] if row['firmware_hash'] else None,
             'running_firmware_version': row['running_firmware_version']}
@@ -118,6 +127,94 @@ def set_waiting_message(key, value):
         return {'ok': False, 'message': 'Message is too long for the LCD. Shorten it to fit five lines.'}
     row['waiting_message'] = value
     return {'ok': True}
+
+
+def _periods(schedule):
+    periods = []
+    for line in schedule.splitlines():
+        match = re.fullmatch(r'([0-9]{2}):([0-9]{2})-([0-9]{2}):([0-9]{2})\s+([0-9]{1,3})', line.strip())
+        if not match:
+            raise ValueError('Use HH:MM-HH:MM maximum on each line.')
+        sh, sm, eh, em, maximum = map(int, match.groups())
+        start, end = sh * 60 + sm, eh * 60 + em
+        if sh >= 24 or sm >= 60 or em >= 60 or end > 1440:
+            raise ValueError('Enter valid times. Use 24:00 only as an end time.')
+        end = end or 1440
+        if end <= start or any(start < b and a < end for a, b, _ in periods):
+            raise ValueError('Periods must not overlap. Split overnight periods at midnight.')
+        periods.append((start, end, maximum))
+    return periods
+
+
+@anvil.server.callable
+def set_drink_limits(key, schedule, message, progress=None, checking=None):
+    row = _device(key)
+    if row is None:
+        return {'ok': False, 'message': 'Enter a valid pairing key first.'}
+    if not isinstance(schedule, str) or len(schedule) > 2000:
+        return {'ok': False, 'message': 'Schedule is too long.'}
+    schedule = schedule.strip()
+    try:
+        _periods(schedule)
+    except ValueError as error:
+        return {'ok': False, 'message': str(error)}
+    if (not isinstance(message, str) or len(message) > 160 or message.count('{end}') != 1
+            or any(not (32 <= ord(c) <= 126 or c == '\n') for c in message)
+            or len(_wrap_waiting_message(message.replace('{end}', '23:59'))) > 5):
+        return {'ok': False, 'message': 'Include {end} once and use basic characters that fit five LCD lines.'}
+    if progress is None:
+        progress = row['drink_progress_message'] or DEFAULT_PROGRESS_MESSAGE
+    if (not isinstance(progress, str) or len(progress) > 160
+            or any(progress.count(token) != 1 for token in ('{drink}', '{max}', '{period}'))
+            or any(not (32 <= ord(c) <= 126 or c == '\n') for c in progress)):
+        return {'ok': False, 'message': 'Use basic characters and include {drink}, {max}, and {period} once each.'}
+    for drink in ('1', '10', '100'):
+        for maximum in ('9', '99', '999'):
+            rendered = progress.replace('{drink}', drink).replace('{max}', maximum).replace('{period}', '15:00-21:00')
+            if len(_wrap_waiting_message(rendered)) > 5:
+                return {'ok': False, 'message': 'Shorten the drink delivery message to fit five LCD lines.'}
+    if checking is None:
+        checking = row['drink_checking_message'] or DEFAULT_CHECKING_MESSAGE
+    if (not isinstance(checking, str) or not checking.strip() or len(checking) > 160
+            or any(not (32 <= ord(c) <= 126 or c == '\n') for c in checking)
+            or len(_wrap_waiting_message(checking)) > 5):
+        return {'ok': False, 'message': 'Enter a checking message using basic characters that fits five LCD lines.'}
+    row.update(drink_schedule=schedule, limit_message=message,
+               drink_progress_message=progress, drink_checking_message=checking)
+    return {'ok': True}
+
+
+def _drink_decision(display, now):
+    local = now.astimezone(AMSTERDAM)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    def boundary(minutes):
+        wall = midnight + timedelta(minutes=minutes)
+        while True:
+            utc = wall.astimezone(timezone.utc)
+            if utc.astimezone(AMSTERDAM).replace(tzinfo=None) == wall.replace(tzinfo=None):
+                return utc
+            # A spring-forward boundary inside the skipped hour starts at 03:00.
+            wall += timedelta(minutes=1)
+
+    for start, end, maximum in _periods(display['drink_schedule'] or ''):
+        beginning, ending = boundary(start), boundary(end)
+        if not beginning <= now < ending:
+            continue
+        used = 0
+        if maximum:
+            for press in app_tables.button_presses.search(
+                    display=display, received_at=q.all_of(
+                        q.greater_than_or_equal_to(beginning), q.less_than(ending))):
+                if press['drink_reserved'] or press['drink_triggered']:
+                    used += 1
+        end_text = ending.astimezone(AMSTERDAM).strftime('%H:%M')
+        if used >= maximum:
+            return (display['limit_message'] or DEFAULT_LIMIT_MESSAGE).replace('{end}', end_text), ''
+        start_text = beginning.astimezone(AMSTERDAM).strftime('%H:%M')
+        template = display['drink_progress_message'] or DEFAULT_PROGRESS_MESSAGE
+        return '', (template.replace('{drink}', str(used + 1)).replace('{max}', str(maximum))
+                    .replace('{period}', f'{start_text}-{end_text}'))
+    return '', ''
 
 
 @anvil.server.callable
@@ -205,6 +302,7 @@ def device_message(**params):
     assert offset is not None
     return anvil.server.HttpResponse(200, json.dumps({'utc_offset': int(offset.total_seconds()),
                                                       'timezone': local_now.tzname(), 'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row), 'waiting_message': _waiting_message(row), 'text': row['message'], 'revision': row['revision'],
+                                                      'drink_checking_message': row['drink_checking_message'] or DEFAULT_CHECKING_MESSAGE,
                                                       'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 
@@ -276,6 +374,36 @@ def device_button(**params):
             or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000
             or not isinstance(data.get('event_id'), str) or not 1 <= len(data['event_id']) <= 80):
         return anvil.server.HttpResponse(400, 'Invalid button event')
+    if data.get('authorize') is True:
+        gap = data.get('pulse_gap_ms')
+        if data['count'] != 1 or type(gap) is not int or not 0 <= gap <= 5000:
+            return anvil.server.HttpResponse(400, 'Invalid authorization request')
+        import json
+        existing = app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1)
+        progress_message = ''
+        if existing is not None:
+            decision = 'Already checked. Press again.'
+        else:
+            now = datetime.now(timezone.utc)
+            decision, progress_message = _drink_decision(row, now)
+            cooldown = _cooldown(row)
+            if not decision and cooldown:
+                cutoff = now - timedelta(minutes=cooldown)
+                prior = app_tables.button_presses.search(
+                    display=row, received_at=q.greater_than(cutoff))
+                latest = max((press['received_at'] for press in prior
+                              if press['drink_reserved'] or press['drink_triggered']), default=None)
+                if latest is not None:
+                    remaining = latest + timedelta(minutes=cooldown) - now
+                    minutes = (remaining + timedelta(minutes=1, microseconds=-1)) // timedelta(minutes=1)
+                    decision = _waiting_message(row).replace('{minutes}', str(minutes))
+            app_tables.button_presses.add_row(display=row, button='A', received_at=now,
+                event_id=data['event_id'], press_in_event=1, pulse_gap_ms=gap,
+                drink_reserved=not decision, drink_triggered=False if decision else None)
+            row.update(button_count=(row['button_count'] or 0) + 1,
+                       button_at=now, button_event_id=data['event_id'], last_seen=now)
+        return anvil.server.HttpResponse(200, json.dumps({'allowed': not decision, 'message': decision or progress_message}),
+                                         headers={'Content-Type': 'application/json'})
     # Older firmware omits the outcome; it cannot be reconstructed reliably.
     outcome = data.get('drink_triggered')
     if ('drink_triggered' in data and (type(outcome) is not bool or data['count'] != 1)):
@@ -284,7 +412,10 @@ def device_button(**params):
     if 'pulse_gap_ms' in data and (type(pulse_gap) is not int or not 0 <= pulse_gap <= 5000 or data['count'] != 1):
         return anvil.server.HttpResponse(400, 'Invalid pulse delay')
     # A permanent event lookup also protects against old retries arriving later.
-    if app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1) is None:
+    existing = app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1)
+    if existing is not None and existing['drink_reserved'] and outcome is True:
+        existing['drink_triggered'] = True
+    if existing is None:
         received_at = datetime.now(timezone.utc)
         for number in range(1, data['count'] + 1):
             app_tables.button_presses.add_row(

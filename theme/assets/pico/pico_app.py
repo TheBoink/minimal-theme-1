@@ -61,7 +61,7 @@ def feed_watchdog():
         watchdog.feed()
 
 
-def fetch(method, url, payload=None):
+def fetch(method, url, payload=None, expect_json=False):
     feed_watchdog()
     response = requests.request(method, url,
                                 headers={'Authorization': 'Bearer ' + PAIRING_KEY,
@@ -70,9 +70,11 @@ def fetch(method, url, payload=None):
     try:
         if response.status_code == 401:
             raise timestamped_error('Pairing key rejected. Check PAIRING_KEY.')
+        if response.status_code >= 500:
+            raise OSError('App HTTP status: ' + str(response.status_code))
         if response.status_code != 200:
             raise timestamped_error('App HTTP status: ' + str(response.status_code))
-        return response.json() if method == 'GET' else None
+        return response.json() if method == 'GET' or expect_json else None
     finally:
         response.close()
         feed_watchdog()
@@ -150,6 +152,8 @@ def wait_with_wifi(lcd, wlan, seconds):
     previous = None
     while time.ticks_diff(time.ticks_ms(), start) < seconds * 1000:
         update_screensaver(lcd)
+        if screen_button is not None and screen_button.events:
+            return
         status = 'ON' if wlan.isconnected() else 'OFF'
         state = (status, clock.label())
         if state != previous:
@@ -159,6 +163,7 @@ def wait_with_wifi(lcd, wlan, seconds):
         time.sleep_ms(250)
 
 
+DEFAULT_CHECKING_MESSAGE = 'One moment please...'
 DEFAULT_WAITING_MESSAGE = 'Even geduld voor de volgende borrel (nog {minutes} minuten).'
 
 
@@ -254,9 +259,9 @@ def update_screensaver(lcd):
 
 def activity_color(count):
     """RGB565 byte order for the Waveshare framebuffer sent directly over SPI."""
-    if count >= 20:
+    if count >= 4:
         red, green, blue = 255, 0, 0
-    elif count >= 10:
+    elif count >= 2:
         red, green, blue = 255, 165, 0
     elif count >= 1:
         red, green, blue = 255, 255, 0
@@ -298,7 +303,7 @@ def draw(lcd, wifi_status='WAIT', app_status=None):
         lcd.text(app_status, 8, 224, 0xffff)
     if screen_button is not None and screen_notice_visible:
         lcd.fill_rect(0, 108, 240, 90, 0)
-        message = screen_button.waiting_message.replace('{minutes}', str(screen_button.notice_minutes))
+        message = screen_button.notice_text
         for index, line in enumerate(wrap_waiting_message(message)):
             large_text(lcd, line, (240 - len(line) * 16) // 2, 109 + index * 17)
     wifi_indicator(lcd, wifi_status)
@@ -346,6 +351,8 @@ class ButtonA:
         self.total = 0
         # Queue per-press outcomes until the server acknowledges them.
         self.events = []
+        self.ready = False
+        self.checking_message = DEFAULT_CHECKING_MESSAGE
         self.pulse_output = pulse_output
         self.pulse_active = False
         self.pulse_gap_ms = 500
@@ -353,7 +360,7 @@ class ButtonA:
         self.waiting_message = DEFAULT_WAITING_MESSAGE
         self.last_action_tick = None
         self.notice_until = None
-        self.notice_minutes = 0
+        self.notice_text = ''
         self.notice_version = 0
         # External switch: physical pin 19 (GP14) to physical pin 18 (GND).
         self.pin = Pin(14, Pin.IN, Pin.PULL_UP)
@@ -380,37 +387,36 @@ class ButtonA:
             if self.stable == 0:
                 self.total += 1
                 event_number = self.total
-                if self.last_action_tick is not None:
-                    elapsed = time.ticks_diff(now, self.last_action_tick)
-                    remaining = self.cooldown_minutes * 60000 - elapsed
-                    if remaining > 0:
-                        self.notice_minutes = (remaining + 59999) // 60000
-                        self.notice_until = time.ticks_add(now, 20000)
-                        self.notice_version += 1
-                        self.events.append((event_number, False, self.pulse_gap_ms))
-                        return
-                self.last_action_tick = now
-                # GP22 is open drain: 0 sinks to ground; 1 releases the line.
-                self.pulse_active = True
+                if self.ready:
+                    self.events.append(event_number)
+                else:
+                    self.notice('Wi-Fi sync needed.', now)
+
+    def notice(self, message, now):
+        self.notice_text = message
+        self.notice_until = time.ticks_add(now, 20000)
+        self.notice_version += 1
+
+    def dispense(self, gap_ms, now):
+        self.last_action_tick = now
+        # GP22 is open drain: 0 sinks to ground; 1 releases the line.
+        self.pulse_active = True
+        try:
+            for pulse in range(2):
+                self.pulse_output.value(0)
                 try:
-                    gap_ms = self.pulse_gap_ms
-                    for pulse in range(2):
-                        self.pulse_output.value(0)
-                        try:
-                            time.sleep_ms(100)
-                        finally:
-                            self.pulse_output.value(1)
-                        if pulse == 0:
-                            remaining = gap_ms
-                            while remaining > 0:
-                                step = min(remaining, 100)
-                                time.sleep_ms(step)
-                                remaining -= step
-                                feed_watchdog()
+                    time.sleep_ms(100)
                 finally:
-                    self.pulse_active = False
-                # Both GP22 pulses completed; actual liquid delivery is not sensed.
-                self.events.append((event_number, True, gap_ms))
+                    self.pulse_output.value(1)
+                if pulse == 0:
+                    remaining = gap_ms
+                    while remaining > 0:
+                        step = min(remaining, 100)
+                        time.sleep_ms(step)
+                        remaining -= step
+                        feed_watchdog()
+        finally:
+            self.pulse_active = False
 
 
 def main():
@@ -458,6 +464,7 @@ def main():
     next_battery_check = time.ticks_ms()
     while True:
         feed_watchdog()
+        checking_press = False
         try:
             connect(wlan, lambda status: wifi_indicator(lcd, status))
             if time.ticks_diff(time.ticks_ms(), next_battery_check) >= 0:
@@ -470,20 +477,38 @@ def main():
                 connect(wlan, lambda status: wifi_indicator(lcd, status))
             clock.sync()
             wifi_indicator(lcd, 'ON')
-            if pending_event is None and button.events:
-                number, triggered, pulse_gap = button.events[0]
-                pending_event = {'button': 'A', 'count': 1,
-                                 'event_id': boot_id + '-' + str(number),
-                                 'drink_triggered': triggered, 'pulse_gap_ms': pulse_gap}
             if pending_event is not None:
                 fetch('POST', button_url, pending_event)
-                button.events.pop(0)
                 pending_event = None
+            if button.events:
+                number = button.events.pop(0)
+                gap = button.pulse_gap_ms
+                event = {'button': 'A', 'count': 1, 'event_id': boot_id + '-' + str(number),
+                         'pulse_gap_ms': gap}
+                checking_press = True
+                button.notice(button.checking_message, time.ticks_ms())
+                update_screensaver(lcd)
+                decision = fetch('POST', button_url, dict(event, authorize=True), expect_json=True)
+                if decision['allowed'] is True:
+                    button.dispense(gap, time.ticks_ms())
+                    pending_event = dict(event, drink_triggered=True)
+                    if decision['message']:
+                        button.notice(decision['message'], time.ticks_ms())
+                    else:
+                        button.notice_until = None
+                else:
+                    button.notice(decision['message'], time.ticks_ms())
+                checking_press = False
+                update_screensaver(lcd)
             if pending_battery is not None:
                 fetch('POST', battery_url, pending_battery)
                 pending_battery = None
             data = fetch('GET', MESSAGE_URL)
         except OSError:
+            button.ready = False
+            if checking_press or button.events or button.pin.value() == 0:
+                button.notice('Wi-Fi sync needed.', time.ticks_ms())
+            button.events.clear()
             # Network outages are expected; preserve the last message and retry.
             print('Network unavailable; retrying in %s seconds.' % POLL_SECONDS)
             draw(lcd, 'ON' if wlan.isconnected() else 'OFF', 'APP: RETRY')
@@ -519,6 +544,8 @@ def main():
                 any(len(wrap_waiting_message(message.replace('{minutes}', n))) > 5 for n in ('1', '10', '100', '1440'))):
             raise timestamped_error('Invalid waiting message received from the app.')
         button.waiting_message = message
+        button.checking_message = data.get('drink_checking_message', DEFAULT_CHECKING_MESSAGE)
+        button.ready = True
         clock.utc_offset = data.get('utc_offset', 0)
         clock.timezone = data.get('timezone', 'UTC')
         activity = data.get('activity')

@@ -22,6 +22,17 @@
         <anvil-component type="TextArea" name="waiting_message_input"></anvil-component>
         <anvil-component type="Button" name="waiting_message_save" prop:text="Save waiting message" prop:role="secondary-button"></anvil-component>
         <anvil-component type="Label" name="waiting_message_status" prop:text="Enter your pairing key to load the waiting message."></anvil-component>
+        <h2>Daily drink limits</h2>
+        <p class="display-note">Amsterdam time. Enter one period per line, for example 08:00-15:00 0. Use 24:00 for midnight at the end of a period. Unlisted times have no period limit. Leave blank to clear the schedule.</p>
+        <anvil-component type="TextArea" name="drink_schedule_input" prop:placeholder="00:00-08:00 1"></anvil-component>
+        <p class="display-note">Limit message on the LCD. Include {end} for the period's end time.</p>
+        <anvil-component type="TextArea" name="limit_message_input"></anvil-component>
+        <p class="display-note">Drink delivery message on the LCD. Use {drink} for the drink number, {max} for the limit, and {period} for the time range.</p>
+        <anvil-component type="TextArea" name="drink_progress_input"></anvil-component>
+        <p class="display-note">LCD message while checking a button press.</p>
+        <anvil-component type="TextArea" name="drink_checking_input"></anvil-component>
+        <anvil-component type="Button" name="drink_limits_save" prop:text="Save drink limits" prop:role="secondary-button"></anvil-component>
+        <anvil-component type="Label" name="drink_limits_status"></anvil-component>
         <h2>From your Pico</h2>
         <anvil-component type="Label" name="button_status" prop:text="Waiting for button A…"></anvil-component>
         <anvil-component type="Timer" name="button_timer" prop:interval="2"></anvil-component>

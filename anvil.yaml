@@ -33,7 +33,7 @@ db_schema:
       client_hidden: false
       name: button
       type: string
-    - admin_ui: {order: 2, width: 210}
+    - admin_ui: {order: 2, width: 152}
       client_hidden: false
       name: received_at
       type: datetime
@@ -46,6 +46,9 @@ db_schema:
       type: number
     - admin_ui: {}
       name: drink_triggered
+      type: bool
+    - admin_ui: {}
+      name: drink_reserved
       type: bool
     - admin_ui: {}
       name: pulse_gap_ms
@@ -88,6 +91,18 @@ db_schema:
       type: number
     - admin_ui: {}
       name: waiting_message
+      type: string
+    - admin_ui: {}
+      name: drink_schedule
+      type: string
+    - admin_ui: {}
+      name: limit_message
+      type: string
+    - admin_ui: {}
+      name: drink_progress_message
+      type: string
+    - admin_ui: {}
+      name: drink_checking_message
       type: string
     - admin_ui: {}
       name: firmware
