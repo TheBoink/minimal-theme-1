@@ -387,7 +387,7 @@ class ButtonA:
                         self.notice_minutes = (remaining + 59999) // 60000
                         self.notice_until = time.ticks_add(now, 20000)
                         self.notice_version += 1
-                        self.events.append((event_number, False))
+                        self.events.append((event_number, False, self.pulse_gap_ms))
                         return
                 self.last_action_tick = now
                 # GP22 is open drain: 0 sinks to ground; 1 releases the line.
@@ -410,7 +410,7 @@ class ButtonA:
                 finally:
                     self.pulse_active = False
                 # Both GP22 pulses completed; actual liquid delivery is not sensed.
-                self.events.append((event_number, True))
+                self.events.append((event_number, True, gap_ms))
 
 
 def main():
@@ -471,10 +471,10 @@ def main():
             clock.sync()
             wifi_indicator(lcd, 'ON')
             if pending_event is None and button.events:
-                number, triggered = button.events[0]
+                number, triggered, pulse_gap = button.events[0]
                 pending_event = {'button': 'A', 'count': 1,
                                  'event_id': boot_id + '-' + str(number),
-                                 'drink_triggered': triggered}
+                                 'drink_triggered': triggered, 'pulse_gap_ms': pulse_gap}
             if pending_event is not None:
                 fetch('POST', button_url, pending_event)
                 button.events.pop(0)

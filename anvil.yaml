@@ -24,26 +24,32 @@ db_schema:
   button_presses:
     client: none
     columns:
-    - admin_ui: {order: 0, width: 208}
+    - admin_ui: {order: 0, width: 118}
       client_hidden: false
       name: display
       target: displays
       type: link_single
-    - admin_ui: {}
+    - admin_ui: {order: 1, width: 106}
+      client_hidden: false
       name: button
       type: string
-    - admin_ui: {}
+    - admin_ui: {order: 2, width: 210}
+      client_hidden: false
       name: received_at
       type: datetime
     - admin_ui: {}
       name: event_id
       type: string
-    - admin_ui: {}
+    - admin_ui: {order: 4, width: 98}
+      client_hidden: false
       name: press_in_event
       type: number
     - admin_ui: {}
       name: drink_triggered
       type: bool
+    - admin_ui: {}
+      name: pulse_gap_ms
+      type: number
     indexes: []
     server: full
     title: Button Presses

@@ -280,13 +280,17 @@ def device_button(**params):
     outcome = data.get('drink_triggered')
     if ('drink_triggered' in data and (type(outcome) is not bool or data['count'] != 1)):
         return anvil.server.HttpResponse(400, 'Invalid drink outcome')
+    pulse_gap = data.get('pulse_gap_ms')
+    if 'pulse_gap_ms' in data and (type(pulse_gap) is not int or not 0 <= pulse_gap <= 5000 or data['count'] != 1):
+        return anvil.server.HttpResponse(400, 'Invalid pulse delay')
     # A permanent event lookup also protects against old retries arriving later.
     if app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1) is None:
         received_at = datetime.now(timezone.utc)
         for number in range(1, data['count'] + 1):
             app_tables.button_presses.add_row(
                 display=row, button='A', received_at=received_at,
-                event_id=data['event_id'], press_in_event=number, drink_triggered=outcome)
+                event_id=data['event_id'], press_in_event=number, drink_triggered=outcome,
+                pulse_gap_ms=pulse_gap)
         row.update(button_count=(row['button_count'] or 0) + data['count'],
                    button_at=received_at, button_event_id=data['event_id'],
                    last_seen=received_at)
