@@ -6,6 +6,7 @@ import os
 import binascii
 import framebuf
 import gc
+import hashlib
 import time
 import ntptime
 import network
@@ -19,6 +20,18 @@ from lcd_driver import LCD_1inch3
 from pico_config import (WIFI_SSID, WIFI_PASSWORD, MESSAGE_URL, PAIRING_KEY,
                          POLL_SECONDS, WATCHDOG_TIMEOUT_MS, HTTP_TIMEOUT_SECONDS)
 
+def firmware_version():
+    digest = hashlib.sha256()
+    with open('pico_app.py', 'rb') as firmware:
+        while True:
+            chunk = firmware.read(1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return binascii.hexlify(digest.digest()).decode()[:12]
+
+
+FIRMWARE_VERSION = firmware_version()
 watchdog = None
 started_at = time.ticks_ms()
 activity = None
@@ -51,7 +64,8 @@ def feed_watchdog():
 def fetch(method, url, payload=None):
     feed_watchdog()
     response = requests.request(method, url,
-                                headers={'Authorization': 'Bearer ' + PAIRING_KEY},
+                                headers={'Authorization': 'Bearer ' + PAIRING_KEY,
+                                         'X-Firmware-Version': FIRMWARE_VERSION},
                                 json=payload, timeout=HTTP_TIMEOUT_SECONDS)
     try:
         if response.status_code == 401:
@@ -279,6 +293,7 @@ def draw(lcd, wifi_status='WAIT', app_status=None):
     lcd.hline(8, 199, 224, 0xffff)
     draw_activity(lcd)
     lcd.hline(8, 106, 224, 0xffff)
+    lcd.text('FW ' + FIRMWARE_VERSION, 8, 28, 0xffff)
     if app_status:
         lcd.text(app_status, 8, 224, 0xffff)
     if screen_button is not None and screen_notice_visible:
@@ -370,7 +385,7 @@ class ButtonA:
                     remaining = self.cooldown_minutes * 60000 - elapsed
                     if remaining > 0:
                         self.notice_minutes = (remaining + 59999) // 60000
-                        self.notice_until = time.ticks_add(now, 5000)
+                        self.notice_until = time.ticks_add(now, 20000)
                         self.notice_version += 1
                         self.events.append((event_number, False))
                         return
@@ -421,11 +436,14 @@ def main():
     ntptime.timeout = 1
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
     firmware_url = MESSAGE_URL[:-len('/message')] + '/firmware'
+    battery_url = MESSAGE_URL[:-len('/message')] + '/battery'
     ota_key = getattr(pico_config, 'OTA_SIGNING_KEY', '')
     next_update_check = time.ticks_ms()
     button = ButtonA(pulse_output)
     boot_id = binascii.hexlify(os.urandom(8)).decode()
     pending_event = None
+    pending_battery = None
+    battery_sequence = 0
     backlight = PWM(Pin(13))
     backlight.freq(1000)
     backlight.duty_u16(32768)
@@ -443,8 +461,12 @@ def main():
         try:
             connect(wlan, lambda status: wifi_indicator(lcd, status))
             if time.ticks_diff(time.ticks_ms(), next_battery_check) >= 0:
-                next_battery_check = time.ticks_add(time.ticks_ms(), 300000)
+                next_battery_check = time.ticks_add(time.ticks_ms(), 3600000)
                 battery_label = read_battery(wlan)
+                battery_sequence += 1
+                battery_status = 'usb' if battery_label == 'USB POWER' else 'unavailable' if battery_label == 'BAT --' else 'battery'
+                battery_percentage = int(battery_label[5:-1]) if battery_status == 'battery' else None
+                pending_battery = {'event_id': boot_id + '-battery-' + str(battery_sequence), 'status': battery_status, 'percentage': battery_percentage}
                 connect(wlan, lambda status: wifi_indicator(lcd, status))
             clock.sync()
             wifi_indicator(lcd, 'ON')
@@ -457,6 +479,9 @@ def main():
                 fetch('POST', button_url, pending_event)
                 button.events.pop(0)
                 pending_event = None
+            if pending_battery is not None:
+                fetch('POST', battery_url, pending_battery)
+                pending_battery = None
             data = fetch('GET', MESSAGE_URL)
         except OSError:
             # Network outages are expected; preserve the last message and retry.

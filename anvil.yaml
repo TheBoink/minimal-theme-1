@@ -1,5 +1,26 @@
 allow_embedding: false
 db_schema:
+  battery_readings:
+    client: none
+    columns:
+    - admin_ui: {}
+      name: display
+      target: displays
+      type: link_single
+    - admin_ui: {}
+      name: received_at
+      type: datetime
+    - admin_ui: {}
+      name: event_id
+      type: string
+    - admin_ui: {}
+      name: percentage
+      type: number
+    - admin_ui: {}
+      name: status
+      type: string
+    server: full
+    title: Battery Readings
   button_presses:
     client: none
     columns:
@@ -74,6 +95,9 @@ db_schema:
     - admin_ui: {}
       name: firmware_published_at
       type: datetime
+    - admin_ui: {}
+      name: running_firmware_version
+      type: string
     server: full
     title: Displays
 metadata: {logo_img: 'asset:DrinkBuddy_stag_glass_240x240_RGB565_preview.png', title: DrinkBuddy}

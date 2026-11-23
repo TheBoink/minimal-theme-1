@@ -8,6 +8,7 @@ class Form1(Form1Template):
         super().__init__(**properties)
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
         self._chart_signature = None
+        self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
         self._settings_key = None
         self.activity_chart.layout = {
             'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed',
@@ -45,9 +46,12 @@ class Form1(Form1Template):
         if not key:
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
             self.activity_chart.data = []
+            self.battery_chart.data = []
+            self.battery_status.text = 'Enter your pairing key to see battery status.'
             self.chart_summary.text = 'Enter your pairing key to see 10-minute activity.'
             self._chart_signature = None
             self._settings_key = None
+            self.firmware_running_label.text = 'Enter your pairing key to see the running firmware version.'
             self.firmware_published_label.text = 'Enter your pairing key to see the publication time.'
             self.waiting_message_input.text = ''
             self.waiting_message_status.text = 'Enter your pairing key to load the waiting message.'
@@ -60,6 +64,7 @@ class Form1(Form1Template):
         try:
             result = anvil.server.call('display_status', key)
             if not result['ok']:
+                self.firmware_running_label.text = result['message']
                 self.firmware_published_label.text = result['message']
                 self.button_status.text = result['message']
                 if self._settings_key != key:
@@ -84,8 +89,9 @@ class Form1(Form1Template):
             else:
                 self.button_status.text = 'Waiting for button A…'
             if result['ok']:
+                self.firmware_running_label.text = 'Running firmware: ' + (result['running_firmware_version'] or 'Unknown (Pico has not reported a version)')
                 published = result['firmware_published_at']
-                self.firmware_published_label.text = 'Firmware: ' + published
+                self.firmware_published_label.text = 'Published firmware: ' + (result['published_firmware_version'] or 'None') + ' · ' + published
             signature = (key, result.get('button_count'))
             if signature != self._chart_signature:
                 self.refresh_activity_chart()
@@ -101,6 +107,18 @@ class Form1(Form1Template):
             return
         self.chart_timer.interval = 0
         try:
+            battery = anvil.server.call('battery_history', key)
+            if battery['ok']:
+                status = battery['status']
+                if status is None:
+                    self.battery_status.text = 'No battery readings received in the last 24 hours.'
+                else:
+                    label = ('Battery approximately ' + str(int(battery['percentage'])) + '%' if status == 'battery' else 'USB power' if status == 'usb' else 'Battery reading unavailable')
+                    self.battery_status.text = label + ' · Last received: ' + battery['last_seen']
+                self.battery_chart.data = [{'type': 'bar', 'x': battery['times'], 'y': battery['values'], 'marker': {'color': '#28543e'}}]
+            else:
+                self.battery_chart.data = []
+                self.battery_status.text = battery['message']
             result = anvil.server.call('ten_minute_button_presses', key)
             if not result['ok']:
                 self.activity_chart.data = []
@@ -188,7 +206,7 @@ class Form1(Form1Template):
             result = anvil.server.call('publish_firmware', key, self.firmware_file.file, signing_key)
             if result['ok']:
                 self.firmware_status.text = 'Firmware published. The Pico will check for it while connected.'
-                self.firmware_published_label.text = 'Firmware: ' + result['firmware_published_at']
+                self.firmware_published_label.text = 'Published firmware: ' + result['digest'] + ' · ' + result['firmware_published_at']
                 self.firmware_key.text = ''
             else:
                 self.firmware_status.text = result['message']

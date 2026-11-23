@@ -59,7 +59,9 @@ def display_status(key):
             'button_count': row['button_count'] or 0, 'button_at': row['button_at'],
             'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row),
             'waiting_message': _waiting_message(row),
-            'firmware_published_at': _firmware_publication_text(row)}
+            'firmware_published_at': _firmware_publication_text(row),
+            'published_firmware_version': row['firmware_hash'][:12] if row['firmware_hash'] else None,
+            'running_firmware_version': row['running_firmware_version']}
 
 
 def _firmware_publication_text(row):
@@ -191,6 +193,11 @@ def device_message(**params):
     row = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
     if row is None:
         return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    version = anvil.server.request.headers.get('x-firmware-version')
+    if version is not None:
+        if len(version) != 12 or any(c not in '0123456789abcdef' for c in version):
+            return anvil.server.HttpResponse(400, 'Invalid firmware version')
+        row['running_firmware_version'] = version
     row['last_seen'] = datetime.now(timezone.utc)
     import json
     local_now = datetime.now(AMSTERDAM)
@@ -200,6 +207,46 @@ def device_message(**params):
                                                       'timezone': local_now.tzname(), 'pulse_gap_ms': _pulse_gap(row), 'cooldown_minutes': _cooldown(row), 'waiting_message': _waiting_message(row), 'text': row['message'], 'revision': row['revision'],
                                                       'activity': _daily_activity(row)}),
                                     headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
+
+
+@anvil.server.route('/device/battery', methods=['POST'])
+@anvil.tables.in_transaction
+def device_battery(**params):
+    display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
+    if display is None:
+        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    data = anvil.server.request.body_json
+    if not isinstance(data, dict):
+        return anvil.server.HttpResponse(400, 'Invalid battery reading')
+    event_id = data.get('event_id')
+    status = data.get('status')
+    percentage = data.get('percentage')
+    if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 80 or
+            status not in ('battery', 'usb', 'unavailable') or
+            (status == 'battery' and (type(percentage) is not int or not 0 <= percentage <= 100)) or
+            (status != 'battery' and percentage is not None)):
+        return anvil.server.HttpResponse(400, 'Invalid battery reading')
+    if app_tables.battery_readings.get(display=display, event_id=event_id) is None:
+        app_tables.battery_readings.add_row(display=display, event_id=event_id,
+            received_at=datetime.now(timezone.utc), status=status, percentage=percentage)
+    return anvil.server.HttpResponse(200, 'OK')
+
+
+@anvil.server.callable
+def battery_history(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    readings = list(app_tables.battery_readings.search(
+        display=display, received_at=q.greater_than_or_equal_to(datetime.now(timezone.utc) - timedelta(hours=24))))
+    readings.sort(key=lambda row: row['received_at'])
+    latest = readings[-1] if readings else None
+    return {'ok': True,
+            'status': latest['status'] if latest else None,
+            'percentage': latest['percentage'] if latest else None,
+            'last_seen': latest['received_at'].astimezone(AMSTERDAM).strftime('%d %b %H:%M:%S %Z') if latest else None,
+            'times': [row['received_at'].astimezone(AMSTERDAM).strftime('%d %b %H:%M:%S %Z') for row in readings if row['status'] == 'battery'],
+            'values': [row['percentage'] for row in readings if row['status'] == 'battery']}
 
 
 @anvil.server.route('/device/ack', methods=['POST'])
