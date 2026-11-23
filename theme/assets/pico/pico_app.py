@@ -98,8 +98,11 @@ clock = DisplayClock()
 
 
 def clock_indicator(lcd):
-    lcd.fill_rect(8, 220, 224, 18, 0)
-    large_text(lcd, clock.label(), 8, 221)
+    lcd.fill_rect(0, 202, 240, 18, 0)
+    time_text = clock.label().split(' ')[-1]
+    large_text(lcd, time_text, 0, 203)
+    battery_text = battery_label.replace('BAT ', '').replace('USB POWER', 'USB')
+    large_text(lcd, battery_text, 240 - len(battery_text) * 16, 203)
 
 
 def wifi_indicator(lcd, status):
@@ -123,8 +126,6 @@ def wifi_indicator(lcd, status):
         lcd.line(201, 19, 223, 2, 0x00f8)
     elif status != 'ON':
         lcd.text('?', 229, 8, color)
-    lcd.fill_rect(8, 27, 120, 10, 0)
-    lcd.text(battery_label, 8, 28, 0xffff)
     clock_indicator(lcd)
     lcd.show()
 
@@ -275,16 +276,16 @@ def draw(lcd, wifi_status='WAIT', app_status=None):
     lcd.fill(0)
     large_text(lcd, 'Drink Buddy', 8, 4)
     lcd.hline(8, 44, 224, 0xffff)
-    lcd.hline(8, 216, 224, 0xffff)
+    lcd.hline(8, 199, 224, 0xffff)
     draw_activity(lcd)
     lcd.hline(8, 106, 224, 0xffff)
     if app_status:
-        lcd.text(app_status, 100, 204, 0xffff)
+        lcd.text(app_status, 8, 224, 0xffff)
     if screen_button is not None and screen_notice_visible:
-        lcd.fill_rect(0, 108, 240, 94, 0)
+        lcd.fill_rect(0, 108, 240, 90, 0)
         message = screen_button.waiting_message.replace('{minutes}', str(screen_button.notice_minutes))
         for index, line in enumerate(wrap_waiting_message(message)):
-            large_text(lcd, line, (240 - len(line) * 16) // 2, 109 + index * 19)
+            large_text(lcd, line, (240 - len(line) * 16) // 2, 109 + index * 17)
     wifi_indicator(lcd, wifi_status)
 
 
