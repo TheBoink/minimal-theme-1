@@ -449,3 +449,33 @@ def ten_minute_button_presses(key):
         counts[index] += 1
     return {'ok': True, 'intervals': [(start + timedelta(minutes=10 * i)).strftime('%d %b %H:%M') for i in range(144)],
             'counts': counts, 'total': sum(counts)}
+
+
+@anvil.server.callable
+def hourly_drink_activity(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = current_hour - timedelta(hours=23)
+    end = current_hour + timedelta(hours=1)
+    presses, drinks = [0] * 24, [0] * 24
+    duration_ms = [0.0] * 24
+    missing_delay = 0
+    for press in app_tables.button_presses.search(
+            q.fetch_only('received_at', 'drink_triggered', 'pulse_gap_ms'), display=display, button='A',
+            received_at=q.all_of(q.greater_than_or_equal_to(start), q.less_than(end))):
+        hour = int((press['received_at'] - start).total_seconds() // 3600)
+        presses[hour] += 1
+        if press['drink_triggered'] is True:
+            drinks[hour] += 1
+            delay = press['pulse_gap_ms']
+            if delay is None:
+                missing_delay += 1
+            else:
+                duration_ms[hour] += delay
+    hours = [(start + timedelta(hours=i)).astimezone(AMSTERDAM).strftime('%d %b %H:%M %Z')
+             for i in range(24)]
+    return {'ok': True, 'hours': hours, 'presses': presses, 'drinks': drinks,
+            'millilitres': [round(value / 75, 2) for value in duration_ms],
+            'missing_delay': missing_delay}

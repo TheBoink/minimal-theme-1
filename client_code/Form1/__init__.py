@@ -9,6 +9,14 @@ class Form1(Form1Template):
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
         self._battery_chart_key = None
         self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
+        self.hourly_chart.layout = {
+            'barmode': 'group',
+            'margin': {'l': 54, 'r': 54, 't': 12, 'b': 95},
+            'xaxis': {'type': 'category', 'tickangle': -45, 'nticks': 8},
+            'yaxis': {'title': 'Count', 'rangemode': 'tozero'},
+            'yaxis2': {'title': 'Estimated mL', 'overlaying': 'y', 'side': 'right', 'rangemode': 'tozero'},
+            'legend': {'orientation': 'h', 'y': 1.12},
+        }
         self._settings_key = None
 
 
@@ -44,6 +52,8 @@ class Form1(Form1Template):
             self.drink_checking_input.text = ''
             self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
+            self.hourly_chart.data = []
+            self.hourly_status.text = 'Enter your pairing key to see hourly activity.'
             self.battery_chart.data = []
             self.battery_status.text = 'Enter your pairing key to see battery status.'
             self._battery_chart_key = None
@@ -114,6 +124,7 @@ class Form1(Form1Template):
             return
         self.battery_timer.interval = 0
         try:
+            self.refresh_hourly_chart(key)
             battery = anvil.server.call('battery_history', key)
             if battery['ok']:
                 status = battery['status']
@@ -130,6 +141,28 @@ class Form1(Form1Template):
             self.battery_timer.interval = 30
 
 
+
+
+    def refresh_hourly_chart(self, key):
+        result = anvil.server.call('hourly_drink_activity', key)
+        if self.key_box.text.strip() != key:
+            return
+        if not result['ok']:
+            self.hourly_chart.data = []
+            self.hourly_status.text = result['message']
+            return
+        hours = result['hours']
+        self.hourly_chart.data = [
+            {'type': 'bar', 'name': 'Button presses', 'x': hours, 'y': result['presses'],
+             'offsetgroup': 'presses', 'marker': {'color': '#64748b'}},
+            {'type': 'bar', 'name': 'Drinks', 'x': hours, 'y': result['drinks'],
+             'offsetgroup': 'drinks', 'marker': {'color': '#28543e'}},
+            {'type': 'bar', 'name': 'Estimated mL', 'x': hours, 'y': result['millilitres'],
+             'offsetgroup': 'volume', 'yaxis': 'y2', 'marker': {'color': '#b66b22'}},
+        ]
+        missing = result['missing_delay']
+        self.hourly_status.text = ('Volume excludes %s drink(s) without a recorded delay.' % missing
+                                   if missing else '')
 
 
     @handle('pulse_gap_save', 'click')
