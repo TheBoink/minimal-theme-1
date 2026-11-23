@@ -272,11 +272,11 @@ def activity_color(count):
 
 
 def draw_activity(lcd):
-    """Oldest day first, today last; each with 12 two-hour boxes."""
+    """Yesterday first, today last; each with 12 two-hour boxes."""
     if activity is None:
         lcd.text('Activity: syncing...', 4, 50, 0xffff)
         return
-    for row, day in enumerate(activity.get('days', [activity])[::-1]):
+    for row, day in enumerate(activity.get('days', [activity])[:2][::-1]):
         y = 48 + row * 20
         large_text(lcd, day['date'], 4, y)
         counts = day.get('counts')
@@ -297,7 +297,7 @@ def draw(lcd, wifi_status='WAIT', app_status=None):
     lcd.hline(8, 44, 224, 0xffff)
     lcd.hline(8, 199, 224, 0xffff)
     draw_activity(lcd)
-    lcd.hline(8, 106, 224, 0xffff)
+    lcd.hline(8, 86, 224, 0xffff)
     lcd.text('FW ' + FIRMWARE_VERSION, 8, 28, 0xffff)
     if app_status:
         lcd.text(app_status, 8, 224, 0xffff)
