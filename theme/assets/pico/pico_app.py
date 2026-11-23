@@ -12,7 +12,7 @@ import network
 import requests
 import ota_updater
 import pico_config
-from machine import Pin, PWM, WDT, Timer
+from machine import ADC, Pin, PWM, WDT, Timer
 from lcd_driver import LCD_1inch3
 
 # pico_config.py lives on your Pico, next to main.py and lcd_driver.py.
@@ -29,6 +29,7 @@ screensaver_active = False
 screen_last_draw = None
 screen_notice_seen = 0
 screen_notice_visible = False
+battery_label = "BAT --"
 
 
 def timestamped_error(message):
@@ -122,6 +123,8 @@ def wifi_indicator(lcd, status):
         lcd.line(201, 19, 223, 2, 0x00f8)
     elif status != 'ON':
         lcd.text('?', 229, 8, color)
+    lcd.fill_rect(8, 27, 120, 10, 0)
+    lcd.text(battery_label, 8, 28, 0xffff)
     clock_indicator(lcd)
     lcd.show()
 
@@ -285,6 +288,24 @@ def draw(lcd, wifi_status='WAIT', app_status=None):
     wifi_indicator(lcd, wifi_status)
 
 
+def read_battery(wlan):
+    """Temporarily stop Wi-Fi to measure the shared VSYS input."""
+    if Pin('WL_GPIO2', Pin.IN).value():
+        return 'USB POWER'
+    wlan.active(False)
+    try:
+        Pin(25, Pin.OUT, Pin.PULL_DOWN).value(1)
+        Pin(29, Pin.IN)
+        voltage = ADC(3).read_u16() * (3 * 3.3 / 65535)
+    finally:
+        Pin(29, Pin.ALT, Pin.PULL_DOWN, alt=7)
+        wlan.active(True)
+    if voltage < 2.0 or voltage > 4.5:
+        return 'BAT --'
+    percentage = max(0, min(100, int((voltage - 2.8) * 100 / (4.2 - 2.8))))
+    return 'BAT ~%d%%' % percentage
+
+
 def connect(wlan, on_status):
     feed_watchdog()
     if wlan.isconnected():
@@ -377,7 +398,7 @@ class ButtonA:
 
 
 def main():
-    global watchdog, activity, screen_button, screen_last_count, screen_last_press
+    global watchdog, activity, screen_button, screen_last_count, screen_last_press, battery_label
     if (not isinstance(WIFI_SSID, str) or not WIFI_SSID or WIFI_SSID == 'YOUR_WIFI_NAME'
             or not isinstance(WIFI_PASSWORD, str)
             or not isinstance(PAIRING_KEY, str) or not PAIRING_KEY
@@ -415,10 +436,15 @@ def main():
     screen_last_press = time.ticks_ms()
     draw(lcd)
     wlan = network.WLAN(network.STA_IF)
+    next_battery_check = time.ticks_ms()
     while True:
         feed_watchdog()
         try:
             connect(wlan, lambda status: wifi_indicator(lcd, status))
+            if time.ticks_diff(time.ticks_ms(), next_battery_check) >= 0:
+                next_battery_check = time.ticks_add(time.ticks_ms(), 300000)
+                battery_label = read_battery(wlan)
+                connect(wlan, lambda status: wifi_indicator(lcd, status))
             clock.sync()
             wifi_indicator(lcd, 'ON')
             if pending_event is None and button.events:
