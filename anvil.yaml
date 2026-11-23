@@ -76,8 +76,9 @@ db_schema:
       type: datetime
     server: full
     title: Displays
-name: Minimal Theme 1
-package_name: Minimal_Theme_1
+metadata: {logo_img: 'asset:DrinkBuddy_stag_glass_240x240_RGB565_preview.png', title: DrinkBuddy}
+name: DrinkBuddy
+package_name: DrinkBuddy
 runtime_options:
   client_version: '3'
   server_spec: {base: python314}

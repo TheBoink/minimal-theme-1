@@ -1,5 +1,6 @@
 unique_ids:
   assets:
+    DrinkBuddy_stag_glass_240x240_RGB565_preview.png: '1795437087394843195674824.2955'
     pico/SETUP.txt: '1794739063817.153229410233916'
     pico/convert_logo.py: '1795121341078.15270878236686825'
     pico/main.py: '1794739063818.53612885638599'
