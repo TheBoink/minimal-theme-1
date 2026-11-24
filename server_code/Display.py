@@ -479,3 +479,75 @@ def hourly_drink_activity(key):
     return {'ok': True, 'hours': hours, 'presses': presses, 'drinks': drinks,
             'millilitres': [round(value / 75, 2) for value in duration_ms],
             'missing_delay': missing_delay}
+
+
+@anvil.server.route('/device/door', methods=['POST'])
+@anvil.tables.in_transaction
+def device_door(**params):
+    display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
+    if display is None:
+        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    data = anvil.server.request.body_json
+    if not isinstance(data, dict):
+        return anvil.server.HttpResponse(400, 'Invalid door event')
+    event_id, timestamp = data.get('event_id'), data.get('opened_at')
+    now = datetime.now(timezone.utc)
+    if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 80 or
+            (timestamp is not None and (type(timestamp) is not int or not 0 <= timestamp <= now.timestamp() + 300))):
+        return anvil.server.HttpResponse(400, 'Invalid door event')
+    if app_tables.door_openings.get(display=display, event_id=event_id) is None:
+        opened = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
+        app_tables.door_openings.add_row(display=display, event_id=event_id, opened_at=opened, received_at=now)
+    return anvil.server.HttpResponse(200, 'OK')
+
+
+@anvil.server.callable
+def door_history(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    rows = app_tables.door_openings.search(anvil.tables.order_by('received_at', ascending=False), display=display)
+    openings = []
+    for row in rows:
+        opened = row['opened_at']
+        stamp = (opened or row['received_at']).astimezone(AMSTERDAM).strftime('%d %b %H:%M:%S %Z')
+        openings.append(stamp if opened is not None else stamp + ' (received)')
+        if len(openings) == 5:
+            break
+    return {'ok': True, 'openings': openings}
+
+
+@anvil.server.route('/device/tilt', methods=['POST'])
+@anvil.tables.in_transaction
+def device_tilt(**params):
+    display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
+    if display is None:
+        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+    data = anvil.server.request.body_json
+    if not isinstance(data, dict):
+        return anvil.server.HttpResponse(400, 'Invalid tilt event')
+    event_id, timestamp = data.get('event_id'), data.get('tilted_at')
+    now = datetime.now(timezone.utc)
+    if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 80 or
+            (timestamp is not None and (type(timestamp) is not int or not 0 <= timestamp <= now.timestamp() + 300))):
+        return anvil.server.HttpResponse(400, 'Invalid tilt event')
+    if app_tables.box_tilts.get(display=display, event_id=event_id) is None:
+        tilted = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
+        app_tables.box_tilts.add_row(display=display, event_id=event_id, tilted_at=tilted, received_at=now)
+    return anvil.server.HttpResponse(200, 'OK')
+
+
+@anvil.server.callable
+def tilt_history(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    rows = app_tables.box_tilts.search(anvil.tables.order_by('received_at', ascending=False), display=display)
+    tilts = []
+    for row in rows:
+        tilted = row['tilted_at']
+        stamp = (tilted or row['received_at']).astimezone(AMSTERDAM).strftime('%d %b %H:%M:%S %Z')
+        tilts.append(stamp if tilted is not None else stamp + ' (received)')
+        if len(tilts) == 5:
+            break
+    return {'ok': True, 'tilts': tilts}

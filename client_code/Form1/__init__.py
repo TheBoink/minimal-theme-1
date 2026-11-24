@@ -52,6 +52,8 @@ class Form1(Form1Template):
             self.drink_checking_input.text = ''
             self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
+            self.door_history_label.text = 'Enter your pairing key to see door openings.'
+            self.tilt_history_label.text = 'Enter your pairing key to see tilt events.'
             self.hourly_chart.data = []
             self.hourly_status.text = 'Enter your pairing key to see hourly activity.'
             self.battery_chart.data = []
@@ -124,6 +126,14 @@ class Form1(Form1Template):
             return
         self.battery_timer.interval = 0
         try:
+            history = anvil.server.call('door_history', key)
+            if self.key_box.text.strip() == key:
+                self.door_history_label.text = ((' • '.join(history['openings']) or 'No door openings recorded.')
+                                                if history['ok'] else history['message'])
+            history = anvil.server.call('tilt_history', key)
+            if self.key_box.text.strip() == key:
+                self.tilt_history_label.text = ((' • '.join(history['tilts']) or 'No tilt events recorded.')
+                                                if history['ok'] else history['message'])
             self.refresh_hourly_chart(key)
             battery = anvil.server.call('battery_history', key)
             if battery['ok']:

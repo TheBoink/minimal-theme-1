@@ -368,12 +368,45 @@ class ButtonA:
         self.candidate = self.stable
         self.candidate_since = time.ticks_ms()
         # The default soft timer works across Pico MicroPython versions.
+        self.door_pin = Pin(27, Pin.IN, Pin.PULL_UP)
+        self.door_open_level = getattr(pico_config, 'DOOR_OPEN_LEVEL', 0)
+        self.door_stable = self.door_candidate = self.door_pin.value()
+        self.door_since = time.ticks_ms()
+        self.door_events = []
+        self.door_sequence = 0
+        self.tilt_pin = Pin(26, Pin.IN, Pin.PULL_UP)
+        self.tilt_active_level = getattr(pico_config, 'TILT_ACTIVE_LEVEL', 0)
+        self.tilt_stable = self.tilt_candidate = self.tilt_pin.value()
+        self.tilt_since = time.ticks_ms()
+        self.tilt_events = []
+        self.tilt_sequence = 0
+        self.unix_offset = 946684800 if time.gmtime(0)[0] == 2000 else 0
         self.timer = Timer(-1)
         self.timer.init(period=10, mode=Timer.PERIODIC, callback=self.sample)
 
     def sample(self, timer):
         value = self.pin.value()
         now = time.ticks_ms()
+        door_level = self.door_pin.value()
+        if door_level != self.door_candidate:
+            self.door_candidate = door_level
+            self.door_since = now
+        if door_level != self.door_stable and time.ticks_diff(now, self.door_since) >= 100:
+            self.door_stable = door_level
+            if door_level == self.door_open_level:
+                self.door_sequence += 1
+                opened_at = int(time.time()) + self.unix_offset if clock.synced else None
+                self.door_events.append((self.door_sequence, opened_at))
+        tilt_level = self.tilt_pin.value()
+        if tilt_level != self.tilt_candidate:
+            self.tilt_candidate = tilt_level
+            self.tilt_since = now
+        if tilt_level != self.tilt_stable and time.ticks_diff(now, self.tilt_since) >= 100:
+            self.tilt_stable = tilt_level
+            if tilt_level == self.tilt_active_level:
+                self.tilt_sequence += 1
+                tilted_at = int(time.time()) + self.unix_offset if clock.synced else None
+                self.tilt_events.append((self.tilt_sequence, tilted_at))
         # Drop expired action times before the tick counter can wrap ambiguously.
         if (self.last_action_tick is not None and
                 time.ticks_diff(now, self.last_action_tick) >= 86400000):
@@ -442,6 +475,8 @@ def main():
     ntptime.timeout = 1
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
     firmware_url = MESSAGE_URL[:-len('/message')] + '/firmware'
+    tilt_url = MESSAGE_URL[:-len('/message')] + '/tilt'
+    door_url = MESSAGE_URL[:-len('/message')] + '/door'
     battery_url = MESSAGE_URL[:-len('/message')] + '/battery'
     ota_key = getattr(pico_config, 'OTA_SIGNING_KEY', '')
     next_update_check = time.ticks_ms()
@@ -503,6 +538,16 @@ def main():
             if pending_battery is not None:
                 fetch('POST', battery_url, pending_battery)
                 pending_battery = None
+            if button.door_events:
+                sequence, opened_at = button.door_events[0]
+                fetch('POST', door_url, {'event_id': boot_id + '-door-' + str(sequence),
+                                         'opened_at': opened_at})
+                button.door_events.pop(0)
+            if button.tilt_events:
+                sequence, tilted_at = button.tilt_events[0]
+                fetch('POST', tilt_url, {'event_id': boot_id + '-tilt-' + str(sequence),
+                                         'tilted_at': tilted_at})
+                button.tilt_events.pop(0)
             data = fetch('GET', MESSAGE_URL)
         except OSError:
             button.ready = False
@@ -517,14 +562,14 @@ def main():
             continue
         # A first successful poll proves the new firmware can start and connect.
         ota_updater.confirm()
-        if (ota_key and not button.events and not button.pulse_active and pending_event is None and
+        if (ota_key and not button.tilt_events and not button.door_events and not button.events and not button.pulse_active and pending_event is None and
                 (button.last_action_tick is None or
                  time.ticks_diff(time.ticks_ms(), button.last_action_tick) >= button.cooldown_minutes * 60000) and
                 time.ticks_diff(time.ticks_ms(), next_update_check) >= 0):
             next_update_check = time.ticks_add(time.ticks_ms(), 60000)
             try:
                 ota_updater.check(firmware_url, PAIRING_KEY, ota_key, feed_watchdog,
-                                  lambda: not button.events and not button.pulse_active and button.stable == 1 and
+                                  lambda: not button.tilt_events and not button.door_events and not button.events and not button.pulse_active and button.stable == 1 and
                                   (button.last_action_tick is None or
                                    time.ticks_diff(time.ticks_ms(), button.last_action_tick) >= button.cooldown_minutes * 60000))
             except OSError:

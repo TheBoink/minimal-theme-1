@@ -21,6 +21,15 @@ db_schema:
       type: string
     server: full
     title: Battery Readings
+  box_tilts:
+    client: none
+    columns:
+    - {name: display, target: displays, type: link_single}
+    - {name: event_id, type: string}
+    - {name: tilted_at, type: datetime}
+    - {name: received_at, type: datetime}
+    server: full
+    title: Box Tilts
   button_presses:
     client: none
     columns:
@@ -121,6 +130,15 @@ db_schema:
       type: string
     server: full
     title: Displays
+  door_openings:
+    client: none
+    columns:
+    - {name: display, target: displays, type: link_single}
+    - {name: event_id, type: string}
+    - {name: opened_at, type: datetime}
+    - {name: received_at, type: datetime}
+    server: full
+    title: Door Openings
 metadata: {logo_img: 'asset:DrinkBuddy_stag_glass_240x240_RGB565_preview.png', title: DrinkBuddy}
 name: DrinkBuddy
 package_name: DrinkBuddy

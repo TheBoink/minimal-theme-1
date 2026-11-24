@@ -15,3 +15,9 @@ HTTP_TIMEOUT_SECONDS = 3
 # Create a long random secret and keep it private. Use the same value when
 # publishing a firmware file in the Anvil app. Empty disables Wi-Fi updates.
 OTA_SIGNING_KEY = ''
+
+# GP27 uses a pull-up. Set to 1 if opening the door releases the switch to high.
+DOOR_OPEN_LEVEL = 0
+
+# GP26 uses a pull-up. Set to 1 if the tilt sensor goes high when tilted.
+TILT_ACTIVE_LEVEL = 0
