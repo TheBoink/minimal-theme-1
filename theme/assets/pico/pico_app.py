@@ -374,8 +374,8 @@ class ButtonA:
         self.door_since = time.ticks_ms()
         self.door_events = []
         self.door_sequence = 0
-        self.tilt_pin = Pin(26, Pin.IN, Pin.PULL_UP)
-        self.tilt_active_level = getattr(pico_config, 'TILT_ACTIVE_LEVEL', 0)
+        self.tilt_pin = Pin(26, Pin.IN, Pin.PULL_DOWN)
+        self.tilt_active_level = getattr(pico_config, 'TILT_ACTIVE_LEVEL', 1)
         self.tilt_stable = self.tilt_candidate = self.tilt_pin.value()
         self.tilt_since = time.ticks_ms()
         self.tilt_events = []
@@ -468,9 +468,13 @@ def main():
         raise timestamped_error('Check the timing settings in pico_config.py.')
     # Release GP22 before the startup delay, so an active-low interface is off.
     pulse_output = Pin(22, Pin.OPEN_DRAIN, value=1)
-    print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
-    time.sleep(5)
-    watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
+    tilt_debug = getattr(pico_config, 'TILT_DEBUG', False)
+    if tilt_debug:
+        print('Tilt debug enabled. Watchdog is off.')
+    else:
+        print('Starting watchdog in 5 seconds; Ctrl+C to stop for maintenance.')
+        time.sleep(5)
+        watchdog = WDT(timeout=WATCHDOG_TIMEOUT_MS)
     feed_watchdog()
     ntptime.timeout = 1
     button_url = MESSAGE_URL[:-len('/message')] + '/button'
@@ -497,7 +501,13 @@ def main():
     draw(lcd)
     wlan = network.WLAN(network.STA_IF)
     next_battery_check = time.ticks_ms()
+    last_tilt_state = None
     while True:
+        if tilt_debug:
+            state = (button.tilt_candidate, button.tilt_stable, button.tilt_sequence)
+            if state != last_tilt_state:
+                print('GP26 raw=%d stable=%d detected=%d active=%d' % (state + (button.tilt_active_level,)))
+                last_tilt_state = state
         feed_watchdog()
         checking_press = False
         try:
@@ -548,6 +558,8 @@ def main():
                 fetch('POST', tilt_url, {'event_id': boot_id + '-tilt-' + str(sequence),
                                          'tilted_at': tilted_at})
                 button.tilt_events.pop(0)
+                if tilt_debug:
+                    print('Tilt %d acknowledged by Anvil' % sequence)
             data = fetch('GET', MESSAGE_URL)
         except OSError:
             button.ready = False

@@ -19,5 +19,8 @@ OTA_SIGNING_KEY = ''
 # GP27 uses a pull-up. Set to 1 if opening the door releases the switch to high.
 DOOR_OPEN_LEVEL = 0
 
-# GP26 uses a pull-up. Set to 1 if the tilt sensor goes high when tilted.
-TILT_ACTIVE_LEVEL = 0
+# GP26 uses a pull-down. Set to 0 only if the sensor drives GP26 low when tilted.
+TILT_ACTIVE_LEVEL = 1
+
+# Print tilt diagnostics to USB serial and skip starting the watchdog.
+TILT_DEBUG = False
