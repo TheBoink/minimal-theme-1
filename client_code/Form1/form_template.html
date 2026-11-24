@@ -72,23 +72,19 @@
       <anvil-component type="Timer" name="button_timer" prop:interval="2"></anvil-component>
     </section>
     <section class="display-compose">
-      <h2>Box door openings</h2>
-      <p class="display-note">Latest five openings in Amsterdam time.</p>
-      <anvil-component type="Label" name="door_history_label" prop:text="Enter your pairing key to see door openings."></anvil-component>
+      <h2>Daily box activity</h2>
+      <p class="display-note">Daily door openings and tilts over the last 14 calendar days in Amsterdam time, including today.</p>
+      <anvil-component type="Label" name="box_chart_status" prop:text="Enter your pairing key to see daily box activity."></anvil-component>
+      <anvil-component type="Plot" name="box_chart" prop:height="340"></anvil-component>
     </section>
     <section class="display-compose">
-      <h2>Box tilts</h2>
-      <p class="display-note">Latest five tilt events in Amsterdam time.</p>
-      <anvil-component type="Label" name="tilt_history_label" prop:text="Enter your pairing key to see tilt events."></anvil-component>
-    </section>
-    <section class="display-compose">
-      <h2>Hourly drink activity</h2>
+      <h2>Daily drink activity</h2>
       <p class="display-note">
-        24 hourly buckets in Amsterdam time, including the current hour.
+        Last 14 calendar days in Amsterdam time, including today.
         Estimated volume is the sum of recorded drink delays divided by 75.
       </p>
-      <anvil-component type="Label" name="hourly_status" prop:text="Enter your pairing key to see hourly activity."></anvil-component>
-      <anvil-component type="Plot" name="hourly_chart" prop:height="360"></anvil-component>
+      <anvil-component type="Label" name="drink_chart_status" prop:text="Enter your pairing key to see daily drink activity."></anvil-component>
+      <anvil-component type="Plot" name="drink_chart" prop:height="360"></anvil-component>
     </section>
     <section class="display-compose">
       <h2>Battery history</h2>

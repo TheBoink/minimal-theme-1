@@ -9,7 +9,14 @@ class Form1(Form1Template):
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
         self._battery_chart_key = None
         self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
-        self.hourly_chart.layout = {
+        self.box_chart.layout = {
+            'barmode': 'group',
+            'margin': {'l': 48, 'r': 20, 't': 25, 'b': 90},
+            'xaxis': {'type': 'category', 'tickangle': -45, 'nticks': 8},
+            'yaxis': {'title': 'Events', 'rangemode': 'tozero', 'dtick': 1},
+            'legend': {'orientation': 'h', 'y': 1.15},
+        }
+        self.drink_chart.layout = {
             'barmode': 'group',
             'margin': {'l': 54, 'r': 54, 't': 12, 'b': 95},
             'xaxis': {'type': 'category', 'tickangle': -45, 'nticks': 8},
@@ -52,10 +59,10 @@ class Form1(Form1Template):
             self.drink_checking_input.text = ''
             self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
             self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
-            self.door_history_label.text = 'Enter your pairing key to see door openings.'
-            self.tilt_history_label.text = 'Enter your pairing key to see tilt events.'
-            self.hourly_chart.data = []
-            self.hourly_status.text = 'Enter your pairing key to see hourly activity.'
+            self.box_chart.data = []
+            self.box_chart_status.text = 'Enter your pairing key to see daily box activity.'
+            self.drink_chart.data = []
+            self.drink_chart_status.text = 'Enter your pairing key to see daily drink activity.'
             self.battery_chart.data = []
             self.battery_status.text = 'Enter your pairing key to see battery status.'
             self._battery_chart_key = None
@@ -126,15 +133,8 @@ class Form1(Form1Template):
             return
         self.battery_timer.interval = 0
         try:
-            history = anvil.server.call('door_history', key)
-            if self.key_box.text.strip() == key:
-                self.door_history_label.text = ((' • '.join(history['openings']) or 'No door openings recorded.')
-                                                if history['ok'] else history['message'])
-            history = anvil.server.call('tilt_history', key)
-            if self.key_box.text.strip() == key:
-                self.tilt_history_label.text = ((' • '.join(history['tilts']) or 'No tilt events recorded.')
-                                                if history['ok'] else history['message'])
-            self.refresh_hourly_chart(key)
+            self.refresh_box_chart(key)
+            self.refresh_drink_chart(key)
             battery = anvil.server.call('battery_history', key)
             if battery['ok']:
                 status = battery['status']
@@ -153,25 +153,43 @@ class Form1(Form1Template):
 
 
 
-    def refresh_hourly_chart(self, key):
-        result = anvil.server.call('hourly_drink_activity', key)
+    def refresh_box_chart(self, key):
+        result = anvil.server.call('daily_box_activity', key)
         if self.key_box.text.strip() != key:
             return
         if not result['ok']:
-            self.hourly_chart.data = []
-            self.hourly_status.text = result['message']
+            self.box_chart.data = []
+            self.box_chart_status.text = result['message']
             return
-        hours = result['hours']
-        self.hourly_chart.data = [
-            {'type': 'bar', 'name': 'Button presses', 'x': hours, 'y': result['presses'],
+        self.box_chart.data = [
+            {'type': 'bar', 'name': 'Door openings', 'x': result['days'],
+             'y': result['openings'], 'marker': {'color': '#28543e'}},
+            {'type': 'bar', 'name': 'Tilts', 'x': result['days'],
+             'y': result['tilts'], 'marker': {'color': '#b66b22'}},
+        ]
+        self.box_chart_status.text = ('' if any(result['openings']) or any(result['tilts'])
+                                      else 'No door openings or tilts in this time range.')
+
+
+    def refresh_drink_chart(self, key):
+        result = anvil.server.call('daily_drink_activity', key)
+        if self.key_box.text.strip() != key:
+            return
+        if not result['ok']:
+            self.drink_chart.data = []
+            self.drink_chart_status.text = result['message']
+            return
+        days = result['days']
+        self.drink_chart.data = [
+            {'type': 'bar', 'name': 'Button presses', 'x': days, 'y': result['presses'],
              'offsetgroup': 'presses', 'marker': {'color': '#64748b'}},
-            {'type': 'bar', 'name': 'Drinks', 'x': hours, 'y': result['drinks'],
+            {'type': 'bar', 'name': 'Drinks', 'x': days, 'y': result['drinks'],
              'offsetgroup': 'drinks', 'marker': {'color': '#28543e'}},
-            {'type': 'bar', 'name': 'Estimated mL', 'x': hours, 'y': result['millilitres'],
+            {'type': 'bar', 'name': 'Estimated mL', 'x': days, 'y': result['millilitres'],
              'offsetgroup': 'volume', 'yaxis': 'y2', 'marker': {'color': '#b66b22'}},
         ]
         missing = result['missing_delay']
-        self.hourly_status.text = ('Volume excludes %s drink(s) without a recorded delay.' % missing
+        self.drink_chart_status.text = ('Volume excludes %s drink(s) without a recorded delay.' % missing
                                    if missing else '')
 
 

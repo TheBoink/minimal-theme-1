@@ -452,31 +452,31 @@ def ten_minute_button_presses(key):
 
 
 @anvil.server.callable
-def hourly_drink_activity(key):
+def daily_drink_activity(key):
     display = _device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
-    current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    start = current_hour - timedelta(hours=23)
-    end = current_hour + timedelta(hours=1)
-    presses, drinks = [0] * 24, [0] * 24
-    duration_ms = [0.0] * 24
+    today = datetime.now(AMSTERDAM).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = today - timedelta(days=13)
+    end = today + timedelta(days=1)
+    presses, drinks = [0] * 14, [0] * 14
+    duration_ms = [0.0] * 14
     missing_delay = 0
     for press in app_tables.button_presses.search(
             q.fetch_only('received_at', 'drink_triggered', 'pulse_gap_ms'), display=display, button='A',
-            received_at=q.all_of(q.greater_than_or_equal_to(start), q.less_than(end))):
-        hour = int((press['received_at'] - start).total_seconds() // 3600)
-        presses[hour] += 1
+            received_at=q.all_of(q.greater_than_or_equal_to(start.astimezone(timezone.utc)),
+                                 q.less_than(end.astimezone(timezone.utc)))):
+        day = (press['received_at'].astimezone(AMSTERDAM).date() - start.date()).days
+        presses[day] += 1
         if press['drink_triggered'] is True:
-            drinks[hour] += 1
+            drinks[day] += 1
             delay = press['pulse_gap_ms']
             if delay is None:
                 missing_delay += 1
             else:
-                duration_ms[hour] += delay
-    hours = [(start + timedelta(hours=i)).astimezone(AMSTERDAM).strftime('%d %b %H:%M %Z')
-             for i in range(24)]
-    return {'ok': True, 'hours': hours, 'presses': presses, 'drinks': drinks,
+                duration_ms[day] += delay
+    days = [(start + timedelta(days=i)).strftime('%d %b') for i in range(14)]
+    return {'ok': True, 'days': days, 'presses': presses, 'drinks': drinks,
             'millilitres': [round(value / 75, 2) for value in duration_ms],
             'missing_delay': missing_delay}
 
@@ -551,3 +551,25 @@ def tilt_history(key):
         if len(tilts) == 5:
             break
     return {'ok': True, 'tilts': tilts}
+
+
+@anvil.server.callable
+def daily_box_activity(key):
+    display = _device(key)
+    if display is None:
+        return {'ok': False, 'message': 'Pairing key not recognised.'}
+    today = datetime.now(AMSTERDAM).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = today - timedelta(days=13)
+    days = [(start + timedelta(days=i)).strftime('%d %b') for i in range(14)]
+    result = {'ok': True, 'days': days}
+    for table, timestamp, name in ((app_tables.door_openings, 'opened_at', 'openings'),
+                                   (app_tables.box_tilts, 'tilted_at', 'tilts')):
+        counts = [0] * 14
+        for row in table.search(q.fetch_only(timestamp, 'received_at'), display=display,
+                                received_at=q.greater_than_or_equal_to(start.astimezone(timezone.utc) - timedelta(minutes=5))):
+            event_time = row[timestamp] or row['received_at']
+            index = (event_time.astimezone(AMSTERDAM).date() - start.date()).days
+            if 0 <= index < 14:
+                counts[index] += 1
+        result[name] = counts
+    return result
