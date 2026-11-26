@@ -1,11 +1,15 @@
 from ._anvil_designer import Form1Template
 from anvil import *
 import anvil.server
+import anvil.users
 
 
 class Form1(Form1Template):
     def __init__(self, **properties):
         super().__init__(**properties)
+        admin = anvil.server.call('is_admin')
+        self.users_button.visible = admin
+        self.pair_button.visible = admin
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
         self._battery_chart_key = None
         self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
@@ -26,6 +30,15 @@ class Form1(Form1Template):
         }
         self._settings_key = None
 
+
+    @handle('users_button', 'click')
+    def manage_users(self, **event_args):
+        open_form('UserAdmin')
+
+    @handle('sign_out_button', 'click')
+    def sign_out(self, **event_args):
+        anvil.users.logout(invalidate_client_objects=True)
+        open_form('Login')
 
     @handle('pair_button', 'click')
     def pair(self, **event_args):

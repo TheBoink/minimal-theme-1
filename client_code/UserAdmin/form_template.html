@@ -1,0 +1,16 @@
+<div class="display-app">
+  <main class="display-main">
+    <anvil-component type="Button" name="back_button" prop:text="Back to dashboard" prop:role="secondary-button"></anvil-component>
+    <h1>Add a user</h1>
+    <section class="display-compose">
+      <label>Email address
+        <anvil-component type="TextBox" name="email_input" prop:type="email"></anvil-component>
+      </label>
+      <label>Existing DrinkBuddy pairing key
+        <anvil-component type="TextBox" name="key_input" prop:hide_text="true"></anvil-component>
+      </label>
+      <anvil-component type="Button" name="add_button" prop:text="Add user" prop:role="secondary-button"></anvil-component>
+      <anvil-component type="Label" name="status"></anvil-component>
+    </section>
+  </main>
+</div>

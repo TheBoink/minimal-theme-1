@@ -139,6 +139,27 @@ db_schema:
     - {name: received_at, type: datetime}
     server: full
     title: Door Openings
+  users:
+    client: none
+    columns:
+    - {name: email, type: string}
+    - admin_ui: {order: 1, width: 167}
+      client_hidden: false
+      name: enabled
+      type: bool
+    - {name: signed_up, type: datetime}
+    - {name: password_hash, type: string}
+    - {name: confirmed_email, type: bool}
+    - {name: remembered_logins, type: simpleObject}
+    - {name: last_login, type: datetime}
+    - {name: n_password_failures, type: number}
+    - {name: confirmation_key, type: string}
+    - {name: mfa, type: simpleObject}
+    - {name: is_admin, type: bool}
+    - {name: display, target: displays, type: link_single}
+    indexes: []
+    server: full
+    title: Users
 metadata: {logo_img: 'asset:DrinkBuddy_stag_glass_240x240_RGB565_preview.png', title: DrinkBuddy}
 name: DrinkBuddy
 package_name: DrinkBuddy
@@ -160,4 +181,7 @@ services:
   server_config: {}
   source: /runtime/services/tables.yml
 - {source: /runtime/services/anvil/secrets.yml}
-startup: {module: Form1, type: form}
+- client_config: {allow_signup: false, use_email: false, use_token: true}
+  server_config: {user_table: users}
+  source: /runtime/services/anvil/users.yml
+startup: {module: Login, type: form}

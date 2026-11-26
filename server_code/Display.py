@@ -12,6 +12,7 @@ import anvil.http
 import anvil.secrets
 import anvil.server
 import anvil.tables
+import anvil.users
 from anvil.tables import app_tables, query as q
 
 
@@ -46,7 +47,45 @@ def _device(key):
     return app_tables.displays.get(key_hash=hashlib.sha256(key.encode()).hexdigest())
 
 
-@anvil.server.callable
+def _is_admin(user):
+    return user is not None and user['enabled'] is True and user['is_admin'] is True
+
+
+def _dashboard_device(key):
+    user = anvil.users.get_user()
+    if user is None or user['enabled'] is not True:
+        return None
+    display = _device(key)
+    if user['is_admin'] is True or display == user['display']:
+        return display
+    return None
+
+
+@anvil.server.callable(require_user=True)
+def is_admin() -> bool:
+    return _is_admin(anvil.users.get_user())
+
+
+@anvil.server.callable(require_user=_is_admin)
+@anvil.tables.in_transaction
+def add_user(email: str, key: str) -> str:
+    if not _is_admin(anvil.users.get_user()):
+        raise anvil.server.PermissionDenied('Administrator access required.')
+    email = email.strip().lower()
+    if len(email) > 254 or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email):
+        return 'Enter a valid email address.'
+    display = _device(key.strip())
+    if display is None:
+        return 'Enter an existing DrinkBuddy pairing key.'
+    if app_tables.users.get(email=email) is not None:
+        return 'An account already exists for this email.'
+    app_tables.users.add_row(
+        email=email, enabled=True, signed_up=datetime.now(timezone.utc), display=display, is_admin=False,
+    )
+    return ''
+
+
+@anvil.server.callable(require_user=_is_admin)
 def create_display():
     key = secrets.token_urlsafe(32)
     app_tables.displays.add_row(key_hash=hashlib.sha256(key.encode()).hexdigest(),
@@ -54,9 +93,9 @@ def create_display():
     return key
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def display_status(key):
-    row = _device(key)
+    row = _dashboard_device(key)
     if row is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     seen = row['last_seen']
@@ -89,9 +128,9 @@ def _pulse_gap(row):
     return 500 if value is None else int(value)
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def set_pulse_gap(key, value):
-    row = _device(key)
+    row = _dashboard_device(key)
     if row is None:
         return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
     if type(value) is not int or not 0 <= value <= 5000:
@@ -105,9 +144,9 @@ def _cooldown(row):
     return 0 if value is None else int(value)
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def set_cooldown(key, value):
-    row = _device(key)
+    row = _dashboard_device(key)
     if row is None:
         return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
     if type(value) is not int or not 0 <= value <= 1440:
@@ -116,9 +155,9 @@ def set_cooldown(key, value):
     return {'ok': True}
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def set_waiting_message(key, value):
-    row = _device(key)
+    row = _dashboard_device(key)
     if row is None:
         return {'ok': False, 'message': 'Create or enter a valid pairing key first.'}
     if not isinstance(value, str) or value.count('{minutes}') != 1:
@@ -148,9 +187,9 @@ def _periods(schedule):
     return periods
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def set_drink_limits(key, schedule, message, progress=None, checking=None):
-    row = _device(key)
+    row = _dashboard_device(key)
     if row is None:
         return {'ok': False, 'message': 'Enter a valid pairing key first.'}
     if not isinstance(schedule, str) or len(schedule) > 2000:
@@ -223,9 +262,9 @@ def _drink_decision(display, now):
     return '', ''
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def publish_firmware(key, media, signing_key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Enter a valid pairing key first.'}
     if not isinstance(signing_key, str) or not 32 <= len(signing_key) <= 128 or not signing_key.isascii():
@@ -352,9 +391,9 @@ def _record_battery():
     return anvil.server.HttpResponse(200, 'OK'), message
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def battery_history(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     readings = list(app_tables.battery_readings.search(
@@ -477,9 +516,9 @@ def _record_button_event():
     return anvil.server.HttpResponse(200, 'OK'), confirmed
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def ten_minute_button_presses(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     now = datetime.now(timezone.utc)
@@ -496,9 +535,9 @@ def ten_minute_button_presses(key):
             'counts': counts, 'total': sum(counts)}
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def daily_drink_activity(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     today = datetime.now(AMSTERDAM).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -554,9 +593,9 @@ def _record_door_opening():
     return anvil.server.HttpResponse(200, 'OK'), True
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def door_history(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     rows = app_tables.door_openings.search(anvil.tables.order_by('received_at', ascending=False), display=display)
@@ -598,9 +637,9 @@ def _record_tilt():
     return anvil.server.HttpResponse(200, 'OK'), 'The box was tilted.'
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def tilt_history(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     rows = app_tables.box_tilts.search(anvil.tables.order_by('received_at', ascending=False), display=display)
@@ -614,9 +653,9 @@ def tilt_history(key):
     return {'ok': True, 'tilts': tilts}
 
 
-@anvil.server.callable
+@anvil.server.callable(require_user=True)
 def daily_box_activity(key):
-    display = _device(key)
+    display = _dashboard_device(key)
     if display is None:
         return {'ok': False, 'message': 'Pairing key not recognised.'}
     today = datetime.now(AMSTERDAM).replace(hour=0, minute=0, second=0, microsecond=0)
