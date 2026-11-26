@@ -146,6 +146,15 @@ runtime_options:
   client_version: '3'
   server_spec: {base: python314}
   version: 3
+secrets:
+  pushover_app_token:
+    type: secret
+    value:
+      FHMOAKDCWEXKXRCF: {? '' : a1EroH3L+xMDCax0PtFlvB6IQjMoo3Q89M7Iu6W35J4+xX9fsKhzOs24JlED55zPqoDGPT2hBypbgkBoYTKtCnj1/83FVnBoMz6AiRJhXHMpi1c8seqako5lZL5pzII+bqIr9PoQW/xMC7omPFxL89MC8LKm4SRtYEBVnn6t2MPTMd5ZUsvrOjtjjt+aMR8rgKqdJ6dAc+473v/XHF0jCd82ZP7L2VCTNUPmoCbCQTHl}
+  pushover_user_key:
+    type: secret
+    value:
+      FHMOAKDCWEXKXRCF: {? '' : oM583K6MOemr6JOTimSB8bhBUWq99WyGyQQ9dMcLIOtrnpzacH+NtmAyUy4fytQ3q3i0FFfqhQtTBIea7F21dGutfH66iT3lRlcI7wEn2rEVref1veKKiHqoYzFqn89Kk521E4aLWBuLTr/iiqA/d5Bn0V1MM65qLAsSSK+QkDZtw+20BdjIOt+Q6pJNp3iJqP/6NY/RpK6aDdEYnOW7CHrWsCTs7L82V+08xVxcz9Q=}
 services:
 - client_config: {enable_v2: true}
   server_config: {}

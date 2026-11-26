@@ -264,6 +264,7 @@ def device_firmware(**params):
     return anvil.server.HttpResponse(200, body, headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
 
 
+LOW_BATTERY_PERCENT = 20
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 
 
@@ -314,14 +315,21 @@ def device_message(**params):
 
 
 @anvil.server.route('/device/battery', methods=['POST'])
-@anvil.tables.in_transaction
 def device_battery(**params):
+    response, message = _record_battery()
+    if message:
+        anvil.server.launch_background_task('send_drink_notification', message)
+    return response
+
+
+@anvil.tables.in_transaction
+def _record_battery():
     display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
     if display is None:
-        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+        return anvil.server.HttpResponse(401, 'Invalid pairing key'), None
     data = anvil.server.request.body_json
     if not isinstance(data, dict):
-        return anvil.server.HttpResponse(400, 'Invalid battery reading')
+        return anvil.server.HttpResponse(400, 'Invalid battery reading'), None
     event_id = data.get('event_id')
     status = data.get('status')
     percentage = data.get('percentage')
@@ -329,11 +337,19 @@ def device_battery(**params):
             status not in ('battery', 'usb', 'unavailable') or
             (status == 'battery' and (type(percentage) is not int or not 0 <= percentage <= 100)) or
             (status != 'battery' and percentage is not None)):
-        return anvil.server.HttpResponse(400, 'Invalid battery reading')
-    if app_tables.battery_readings.get(display=display, event_id=event_id) is None:
-        app_tables.battery_readings.add_row(display=display, event_id=event_id,
-            received_at=datetime.now(timezone.utc), status=status, percentage=percentage)
-    return anvil.server.HttpResponse(200, 'OK')
+        return anvil.server.HttpResponse(400, 'Invalid battery reading'), None
+    if app_tables.battery_readings.get(display=display, event_id=event_id) is not None:
+        return anvil.server.HttpResponse(200, 'OK'), None
+    message = None
+    if status == 'battery' and percentage <= LOW_BATTERY_PERCENT:
+        prior = next(iter(app_tables.battery_readings.search(
+            anvil.tables.order_by('received_at', ascending=False), display=display, status='battery',
+        )), None)
+        if prior is None or prior['percentage'] > LOW_BATTERY_PERCENT:
+            message = f'DrinkBuddy battery is low ({percentage}%).'
+    app_tables.battery_readings.add_row(display=display, event_id=event_id,
+        received_at=datetime.now(timezone.utc), status=status, percentage=percentage)
+    return anvil.server.HttpResponse(200, 'OK'), message
 
 
 @anvil.server.callable
@@ -378,20 +394,20 @@ def device_button(**params):
 
 
 @anvil.server.background_task
-def send_drink_notification():
+def send_drink_notification(message='A drink was dispensed.'):
     try:
         token = anvil.secrets.get_secret('pushover_app_token')
         user = anvil.secrets.get_secret('pushover_user_key')
     except anvil.secrets.SecretError:
-        print('Drink notifications need pushover_app_token and pushover_user_key in App Secrets.')
+        print('Push notifications need pushover_app_token and pushover_user_key in App Secrets.')
         return
     result = anvil.http.request(
         'https://api.pushover.net/1/messages.json',
         method='POST', json=True, timeout=10,
-        data={'token': token, 'user': user, 'title': 'DrinkBuddy', 'message': 'A drink was dispensed.'},
+        data={'token': token, 'user': user, 'title': 'DrinkBuddy', 'message': message},
     )
     if not isinstance(result, dict) or result.get('status') != 1:
-        raise RuntimeError('Pushover did not accept the drink notification.')
+        raise RuntimeError('Pushover did not accept the push notification.')
 
 
 @anvil.tables.in_transaction
@@ -511,23 +527,31 @@ def daily_drink_activity(key):
 
 
 @anvil.server.route('/device/door', methods=['POST'])
-@anvil.tables.in_transaction
 def device_door(**params):
+    response, recorded = _record_door_opening()
+    if recorded:
+        anvil.server.launch_background_task('send_drink_notification', 'The door was opened.')
+    return response
+
+
+@anvil.tables.in_transaction
+def _record_door_opening():
     display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
     if display is None:
-        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+        return anvil.server.HttpResponse(401, 'Invalid pairing key'), False
     data = anvil.server.request.body_json
     if not isinstance(data, dict):
-        return anvil.server.HttpResponse(400, 'Invalid door event')
+        return anvil.server.HttpResponse(400, 'Invalid door event'), False
     event_id, timestamp = data.get('event_id'), data.get('opened_at')
     now = datetime.now(timezone.utc)
     if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 80 or
             (timestamp is not None and (type(timestamp) is not int or not 0 <= timestamp <= now.timestamp() + 300))):
-        return anvil.server.HttpResponse(400, 'Invalid door event')
-    if app_tables.door_openings.get(display=display, event_id=event_id) is None:
-        opened = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
-        app_tables.door_openings.add_row(display=display, event_id=event_id, opened_at=opened, received_at=now)
-    return anvil.server.HttpResponse(200, 'OK')
+        return anvil.server.HttpResponse(400, 'Invalid door event'), False
+    if app_tables.door_openings.get(display=display, event_id=event_id) is not None:
+        return anvil.server.HttpResponse(200, 'OK'), False
+    opened = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
+    app_tables.door_openings.add_row(display=display, event_id=event_id, opened_at=opened, received_at=now)
+    return anvil.server.HttpResponse(200, 'OK'), True
 
 
 @anvil.server.callable
@@ -547,23 +571,31 @@ def door_history(key):
 
 
 @anvil.server.route('/device/tilt', methods=['POST'])
-@anvil.tables.in_transaction
 def device_tilt(**params):
+    response, message = _record_tilt()
+    if message:
+        anvil.server.launch_background_task('send_drink_notification', message)
+    return response
+
+
+@anvil.tables.in_transaction
+def _record_tilt():
     display = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
     if display is None:
-        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+        return anvil.server.HttpResponse(401, 'Invalid pairing key'), None
     data = anvil.server.request.body_json
     if not isinstance(data, dict):
-        return anvil.server.HttpResponse(400, 'Invalid tilt event')
+        return anvil.server.HttpResponse(400, 'Invalid tilt event'), None
     event_id, timestamp = data.get('event_id'), data.get('tilted_at')
     now = datetime.now(timezone.utc)
     if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 80 or
             (timestamp is not None and (type(timestamp) is not int or not 0 <= timestamp <= now.timestamp() + 300))):
-        return anvil.server.HttpResponse(400, 'Invalid tilt event')
-    if app_tables.box_tilts.get(display=display, event_id=event_id) is None:
-        tilted = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
-        app_tables.box_tilts.add_row(display=display, event_id=event_id, tilted_at=tilted, received_at=now)
-    return anvil.server.HttpResponse(200, 'OK')
+        return anvil.server.HttpResponse(400, 'Invalid tilt event'), None
+    if app_tables.box_tilts.get(display=display, event_id=event_id) is not None:
+        return anvil.server.HttpResponse(200, 'OK'), None
+    tilted = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp is not None else None
+    app_tables.box_tilts.add_row(display=display, event_id=event_id, tilted_at=tilted, received_at=now)
+    return anvil.server.HttpResponse(200, 'OK'), 'The box was tilted.'
 
 
 @anvil.server.callable
