@@ -181,7 +181,7 @@ services:
   server_config: {}
   source: /runtime/services/tables.yml
 - {source: /runtime/services/anvil/secrets.yml}
-- client_config: {allow_signup: false, use_email: false, use_token: true}
+- client_config: {allow_signup: true, confirm_email: true, require_secure_passwords: true, use_email: true, use_token: true}
   server_config: {user_table: users}
   source: /runtime/services/anvil/users.yml
 startup: {module: Login, type: form}
