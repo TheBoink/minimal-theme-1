@@ -8,6 +8,8 @@ import hashlib
 import hmac
 import secrets
 import anvil
+import anvil.http
+import anvil.secrets
 import anvil.server
 import anvil.tables
 from anvil.tables import app_tables, query as q
@@ -368,20 +370,44 @@ def device_ack(**params):
 
 
 @anvil.server.route('/device/button', methods=['POST'])
-@anvil.tables.in_transaction
 def device_button(**params):
+    response, confirmed = _record_button_event()
+    if confirmed:
+        anvil.server.launch_background_task('send_drink_notification')
+    return response
+
+
+@anvil.server.background_task
+def send_drink_notification():
+    try:
+        token = anvil.secrets.get_secret('pushover_app_token')
+        user = anvil.secrets.get_secret('pushover_user_key')
+    except anvil.secrets.SecretError:
+        print('Drink notifications need pushover_app_token and pushover_user_key in App Secrets.')
+        return
+    result = anvil.http.request(
+        'https://api.pushover.net/1/messages.json',
+        method='POST', json=True, timeout=10,
+        data={'token': token, 'user': user, 'title': 'DrinkBuddy', 'message': 'A drink was dispensed.'},
+    )
+    if not isinstance(result, dict) or result.get('status') != 1:
+        raise RuntimeError('Pushover did not accept the drink notification.')
+
+
+@anvil.tables.in_transaction
+def _record_button_event():
     row = _device(anvil.server.request.headers.get('authorization', '').removeprefix('Bearer '))
     if row is None:
-        return anvil.server.HttpResponse(401, 'Invalid pairing key')
+        return anvil.server.HttpResponse(401, 'Invalid pairing key'), False
     data = anvil.server.request.body_json
     if (not isinstance(data, dict) or data.get('button') != 'A'
             or type(data.get('count')) is not int or not 1 <= data['count'] <= 1000
             or not isinstance(data.get('event_id'), str) or not 1 <= len(data['event_id']) <= 80):
-        return anvil.server.HttpResponse(400, 'Invalid button event')
+        return anvil.server.HttpResponse(400, 'Invalid button event'), False
     if data.get('authorize') is True:
         gap = data.get('pulse_gap_ms')
         if data['count'] != 1 or type(gap) is not int or not 0 <= gap <= 5000:
-            return anvil.server.HttpResponse(400, 'Invalid authorization request')
+            return anvil.server.HttpResponse(400, 'Invalid authorization request'), False
         import json
         existing = app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1)
         progress_message = ''
@@ -407,17 +433,20 @@ def device_button(**params):
             row.update(button_count=(row['button_count'] or 0) + 1,
                        button_at=now, button_event_id=data['event_id'], last_seen=now)
         return anvil.server.HttpResponse(200, json.dumps({'allowed': not decision, 'message': decision or progress_message}),
-                                         headers={'Content-Type': 'application/json'})
+                                         headers={'Content-Type': 'application/json'}), False
     # Older firmware omits the outcome; it cannot be reconstructed reliably.
     outcome = data.get('drink_triggered')
     if ('drink_triggered' in data and (type(outcome) is not bool or data['count'] != 1)):
-        return anvil.server.HttpResponse(400, 'Invalid drink outcome')
+        return anvil.server.HttpResponse(400, 'Invalid drink outcome'), False
     pulse_gap = data.get('pulse_gap_ms')
     if 'pulse_gap_ms' in data and (type(pulse_gap) is not int or not 0 <= pulse_gap <= 5000 or data['count'] != 1):
-        return anvil.server.HttpResponse(400, 'Invalid pulse delay')
+        return anvil.server.HttpResponse(400, 'Invalid pulse delay'), False
     # A permanent event lookup also protects against old retries arriving later.
     existing = app_tables.button_presses.get(display=row, event_id=data['event_id'], press_in_event=1)
-    if existing is not None and existing['drink_reserved'] and outcome is True:
+    confirmed = outcome is True and (
+        existing is None or (existing['drink_reserved'] and existing['drink_triggered'] is not True)
+    )
+    if existing is not None and confirmed:
         existing['drink_triggered'] = True
     if existing is None:
         received_at = datetime.now(timezone.utc)
@@ -429,7 +458,7 @@ def device_button(**params):
         row.update(button_count=(row['button_count'] or 0) + data['count'],
                    button_at=received_at, button_event_id=data['event_id'],
                    last_seen=received_at)
-    return anvil.server.HttpResponse(200, 'OK')
+    return anvil.server.HttpResponse(200, 'OK'), confirmed
 
 
 @anvil.server.callable
