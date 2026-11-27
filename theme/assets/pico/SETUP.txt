@@ -25,10 +25,13 @@ FIRST-TIME WI-FI FROM A PHONE
 1. Provision MESSAGE_URL and PAIRING_KEY in the private pico_config.py and leave
    WIFI_SSID and WIFI_PASSWORD blank. Install pico_app.py with the recovery
    loader and start the device. The pairing key stays on the Pico.
-2. On the phone, join the DrinkBuddy network shown on the LCD with its setup
-   password. Stay connected if the phone says there is no internet.
-3. In your browser, open the exact http:// address shown on the LCD. Enter the
-   name and password of your 2.4 GHz Wi-Fi network and select Connect.
+2. Scan the "1 Join hotspot" QR code with your phone camera and accept the
+   Wi-Fi prompt. You can also join manually using the network name and password
+   on the LCD. Stay connected if the phone says there is no internet.
+3. While connected to the DrinkBuddy hotspot, scan the "2 Open setup" QR code
+   to open the setup page. You can also type the http://
+   address shown on the LCD. Enter the name and password of your 2.4 GHz Wi-Fi
+   network and select Connect.
 4. Watch the LCD. If joining fails, rejoin the same setup hotspot and try again.
    After a successful join the Pico saves the Wi-Fi settings and starts syncing
    with Anvil. The DrinkBuddy dashboard should then show Pico online.

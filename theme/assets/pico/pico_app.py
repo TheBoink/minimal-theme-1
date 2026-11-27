@@ -477,6 +477,136 @@ def setup_screen(lcd, *lines):
     lcd.show()
 
 
+# Pre-rendered QR for the Pico access point's default setup address.
+SETUP_QR_URL = 'http://192.168.4.1/'
+SETUP_QR_ROWS = (
+    0x0, 0x0, 0x0, 0x0, 0x1fdd97f0,
+    0x105cc410, 0x1759c5d0, 0x174af5d0, 0x1756c5d0, 0x104bd410,
+    0x1fd557f0, 0x29000, 0x13f0a970, 0x101af9e0, 0xe6aaf90,
+    0x19a3a9f0, 0x7699c10, 0x11a4e320, 0x1fdbb8f0, 0x17121150,
+    0x13685f60, 0x1ff120, 0x1fda1590, 0x10595120, 0x1759ff90,
+    0x175846b0, 0x17414170, 0x10406f70, 0x1fd4f490, 0x0,
+    0x0, 0x0, 0x0,
+)
+
+
+# QR version 3-L, mask 0, with one block of 55 data and 15 parity bytes.
+# Row masks contain the fixed dark modules and the available data modules.
+JOIN_QR_FIXED = (
+    0x1fc0007f, 0x10400041, 0x1740015d, 0x1740005d, 0x1740005d, 0x10400041,
+    0x1fd5557f, 0x100, 0x46001f7, 0x0, 0x40, 0x0,
+    0x40, 0x0, 0x40, 0x0, 0x40, 0x0,
+    0x40, 0x0, 0x1f00040, 0x1100100, 0x150017f, 0x1100141,
+    0x1f0015d, 0x5d, 0x15d, 0x141, 0x17f,
+)
+JOIN_QR_DATA = (
+    0x1ffe00, 0x1ffe00, 0x1ffe00, 0x1ffe00, 0x1ffe00, 0x1ffe00,
+    0x0, 0x1ffe00, 0x1ffe00, 0x1fffffbf, 0x1fffffbf, 0x1fffffbf,
+    0x1fffffbf, 0x1fffffbf, 0x1fffffbf, 0x1fffffbf, 0x1fffffbf, 0x1fffffbf,
+    0x1fffffbf, 0x1fffffbf, 0x1e0fffbf, 0x1e0ffe00, 0x1e0ffe00, 0x1e0ffe00,
+    0x1e0ffe00, 0x1ffffe00, 0x1ffffe00, 0x1ffffe00, 0x1ffffe00,
+)
+JOIN_QR_RS = (
+    0x1d, 0xc4, 0x6f, 0xa3, 0x70, 0x4a,
+    0xa, 0x69, 0x69, 0x8b, 0x84, 0x97,
+    0x20, 0x86, 0x1a,
+)
+
+
+def qr_field_multiply(left, right):
+    result = 0
+    while right:
+        if right & 1:
+            result ^= left
+        right >>= 1
+        left <<= 1
+        if left & 256:
+            left ^= 0x11d
+    return result
+
+
+def hotspot_qr(name, password):
+    payload = ('WIFI:T:WPA;S:%s;P:%s;;' % (name, password)).encode()
+    # The firmware generates both fields from an ASCII prefix and hex digits.
+    # Byte mode and the length occupy 12 bits. The final low nibble terminates.
+    data = bytearray([0x40 | (len(payload) >> 4)])
+    carry = (len(payload) & 15) << 4
+    for character in payload:
+        data.append(carry | (character >> 4))
+        carry = (character & 15) << 4
+    data.append(carry)
+    pad_start = len(data)
+    while len(data) < 55:
+        data.append(0xec if (len(data) - pad_start) % 2 == 0 else 0x11)
+    parity = bytearray(15)
+    for codeword in data:
+        factor = codeword ^ parity[0]
+        for index, coefficient in enumerate(JOIN_QR_RS):
+            following = parity[index + 1] if index < 14 else 0
+            parity[index] = following ^ qr_field_multiply(coefficient, factor)
+    data.extend(parity)
+
+    rows = list(JOIN_QR_FIXED)
+    position = 0
+    upward = True
+    right = 28
+    while right > 0:
+        if right == 6:
+            right -= 1
+        for row in (range(28, -1, -1) if upward else range(29)):
+            for column in (right, right - 1):
+                module = 1 << column
+                if JOIN_QR_DATA[row] & module:
+                    dark = (data[position // 8] >> (7 - position % 8)) & 1 if position < 560 else 0
+                    if dark ^ ((row + column) % 2 == 0):
+                        rows[row] |= module
+                    position += 1
+        upward = not upward
+        right -= 2
+    # Add four white modules on every side, matching the setup-page bitmap.
+    return [0] * 4 + [reverse_qr_row(row) << 4 for row in rows] + [0] * 4
+
+
+def reverse_qr_row(row):
+    result = 0
+    for column in range(29):
+        result = (result << 1) | ((row >> column) & 1)
+    return result
+
+
+def draw_setup_qr(lcd, rows, x, y):
+    scale = 3
+    size = len(rows)
+    lcd.fill_rect(x, y, size * scale, size * scale, 0xffff)
+    for row, bits in enumerate(rows):
+        for column in range(size):
+            if bits & (1 << (size - 1 - column)):
+                lcd.fill_rect(x + column * scale, y + row * scale, scale, scale, 0)
+
+
+def show_setup_hotspot(lcd, name, password, address, failure):
+    url = 'http://' + address + '/'
+    lcd.fill(0)
+    large_text(lcd, 'Wi-Fi setup', 4, 1)
+    if failure:
+        lcd.text('Try again', 164, 5, 0xffff)
+    prefix, suffix = name.split('-', 1)
+    large_text(lcd, prefix + '-', 4, 19)
+    large_text(lcd, suffix, 4, 36)
+    lcd.text('Pass:', 4, 58, 0xffff)
+    large_text(lcd, password, 44, 54)
+    large_text(lcd, address, 0, 73)
+    lcd.text('1 Join hotspot', 3, 104, 0xffff)
+    draw_setup_qr(lcd, hotspot_qr(name, password), 3, 120)
+    if url == SETUP_QR_URL:
+        lcd.text('2 Open setup', 130, 104, 0xffff)
+        draw_setup_qr(lcd, SETUP_QR_ROWS, 130, 120)
+    else:
+        lcd.text('2 Open http://', 120, 104, 0xffff)
+        lcd.text('address above', 120, 120, 0xffff)
+    lcd.show()
+
+
 def provision_wifi(lcd, wlan):
     ap = network.WLAN(network.AP_IF)
     name = 'DrinkBuddy-' + binascii.hexlify(os.urandom(3)).decode()
@@ -489,8 +619,7 @@ def provision_wifi(lcd, wlan):
         ap.active(True)
         try:
             address = ap.ifconfig()[0]
-            setup_screen(lcd, 'Wi-Fi setup', 'Join ' + name, 'Password: ' + password,
-                         'Open http://' + address, failure)
+            show_setup_hotspot(lcd, name, password, address, failure)
             listener = socket.socket()
             try:
                 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
