@@ -7,6 +7,8 @@ import binascii
 import framebuf
 import gc
 import hashlib
+import json
+import socket
 import time
 import ntptime
 import network
@@ -17,7 +19,7 @@ from machine import ADC, Pin, PWM, WDT, Timer
 from lcd_driver import LCD_1inch3
 
 # pico_config.py lives on your Pico, next to main.py and lcd_driver.py.
-from pico_config import (WIFI_SSID, WIFI_PASSWORD, MESSAGE_URL, PAIRING_KEY,
+from pico_config import (MESSAGE_URL, PAIRING_KEY,
                          POLL_SECONDS, WATCHDOG_TIMEOUT_MS, HTTP_TIMEOUT_SECONDS)
 
 def firmware_version():
@@ -327,14 +329,14 @@ def read_battery(wlan):
     return 'BAT ~%d%%' % percentage
 
 
-def connect(wlan, on_status):
+def connect(wlan, credentials, on_status):
     feed_watchdog()
     if wlan.isconnected():
         return
     on_status('JOIN')
     wlan.active(True)
     wlan.disconnect()
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    wlan.connect(*credentials)
     start = time.ticks_ms()
     while not wlan.isconnected():
         if wlan.status() < 0 or time.ticks_diff(time.ticks_ms(), start) > 20000:
@@ -343,6 +345,190 @@ def connect(wlan, on_status):
         feed_watchdog()
         time.sleep_ms(250)
     on_status('ON')
+
+
+# CYW43_AUTH_WPA2_AES_PSK from the Pico SDK.
+SETUP_WPA2 = 0x00400004
+WIFI_SETTINGS = 'wifi_settings.json'
+SETUP_PAGE = """<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DrinkBuddy Wi-Fi setup</title>
+<style>
+body{font:1rem system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem;color:#173125}
+label,input,button{display:block}input,button{font:inherit;padding:.65rem;margin:.35rem 0 1rem}
+input{box-sizing:border-box;width:100%%}
+</style>
+<h1>Connect DrinkBuddy</h1><p>Enter the name and password of your 2.4 GHz Wi-Fi network.</p>
+<form method="post" action="/">
+<input type="hidden" name="token" value="%s">
+<label for="ssid">Wi-Fi network name</label>
+<input id="ssid" name="ssid" maxlength="32" required>
+<label for="password">Wi-Fi password</label>
+<input id="password" name="password" type="password" maxlength="63">
+<button>Connect</button>
+</form>
+"""
+
+
+def valid_wifi(ssid, password):
+    return (isinstance(ssid, str) and 1 <= len(ssid.encode()) <= 32
+            and isinstance(password, str)
+            and (not password or 8 <= len(password.encode()) <= 63)
+            and '\x00' not in ssid and '\x00' not in password)
+
+
+def load_wifi():
+    try:
+        with open(WIFI_SETTINGS) as file:
+            saved = json.load(file)
+    except OSError as error:
+        if error.args[0] != 2:
+            raise
+    except ValueError:
+        pass
+    else:
+        if isinstance(saved, list) and len(saved) == 2 and valid_wifi(*saved):
+            return tuple(saved)
+    ssid = getattr(pico_config, 'WIFI_SSID', '')
+    password = getattr(pico_config, 'WIFI_PASSWORD', '')
+    if ssid != 'YOUR_WIFI_NAME' and valid_wifi(ssid, password):
+        return ssid, password
+    return None
+
+
+def save_wifi(credentials):
+    temporary_file = WIFI_SETTINGS + '.tmp'
+    with open(temporary_file, 'w') as file:
+        json.dump(credentials, file)
+    os.rename(temporary_file, WIFI_SETTINGS)
+
+
+def decode_form_value(value):
+    result = bytearray()
+    parts = value.replace(b'+', b' ').split(b'%')
+    result.extend(parts[0])
+    for part in parts[1:]:
+        result.extend(binascii.unhexlify(part[:2]))
+        result.extend(part[2:])
+    return result.decode('utf-8')
+
+
+def reply_setup(client, status, html):
+    body = html.encode()
+    feed_watchdog()
+    client.write(('HTTP/1.1 %s\r\nContent-Type: text/html; charset=utf-8\r\n'
+                  'Cache-Control: no-store\r\nConnection: close\r\n'
+                  'Content-Length: %d\r\n\r\n' % (status, len(body))).encode())
+    feed_watchdog()
+    client.write(body)
+
+
+def setup_request(client, token):
+    client.settimeout(1)
+    start = time.ticks_ms()
+    request = b''
+    while b'\r\n\r\n' not in request:
+        feed_watchdog()
+        chunk = client.recv(512)
+        if not chunk or len(request) + len(chunk) > 4096 or time.ticks_diff(time.ticks_ms(), start) > 3000:
+            return None
+        request += chunk
+    headers, body = request.split(b'\r\n\r\n', 1)
+    lines = headers.split(b'\r\n')
+    method = lines[0].split(b' ')[:2]
+    if method == [b'GET', b'/']:
+        reply_setup(client, '200 OK', SETUP_PAGE % token)
+        return None
+    if method != [b'POST', b'/']:
+        reply_setup(client, '404 Not Found', '<a href="/">Open DrinkBuddy Wi-Fi setup</a>')
+        return None
+    try:
+        length = next((int(line.split(b':', 1)[1]) for line in lines[1:]
+                       if line.lower().startswith(b'content-length:')), 0)
+        if not 1 <= length <= 1024:
+            raise ValueError()
+        while len(body) < length:
+            feed_watchdog()
+            chunk = client.recv(length - len(body))
+            if not chunk or time.ticks_diff(time.ticks_ms(), start) > 3000:
+                return None
+            body += chunk
+        fields = {}
+        for field in body[:length].split(b'&'):
+            name, value = field.split(b'=', 1)
+            fields[name] = decode_form_value(value)
+        ssid = fields.get(b'ssid')
+        password = fields.get(b'password')
+        if fields.get(b'token') != token or not valid_wifi(ssid, password):
+            raise ValueError()
+    except (ValueError, UnicodeError):
+        reply_setup(client, '400 Bad Request', '<p>Check the Wi-Fi details and try again.</p>' + SETUP_PAGE % token)
+        return None
+    reply_setup(client, '200 OK',
+                '<h1>Testing Wi-Fi</h1><p>Check the DrinkBuddy screen. If the connection fails, '
+                'rejoin its setup network and try again.</p>')
+    return ssid, password
+
+
+def setup_screen(lcd, *lines):
+    lcd.fill(0)
+    for index, line in enumerate(lines):
+        lcd.text(line, 8, 24 + index * 24, 0xffff)
+    lcd.show()
+
+
+def provision_wifi(lcd, wlan):
+    ap = network.WLAN(network.AP_IF)
+    name = 'DrinkBuddy-' + binascii.hexlify(os.urandom(3)).decode()
+    password = binascii.hexlify(os.urandom(6)).decode()
+    token = binascii.hexlify(os.urandom(16)).decode()
+    failure = ''
+    while True:
+        wlan.active(False)
+        ap.config(ssid=name, key=password, security=SETUP_WPA2)
+        ap.active(True)
+        try:
+            address = ap.ifconfig()[0]
+            setup_screen(lcd, 'Wi-Fi setup', 'Join ' + name, 'Password: ' + password,
+                         'Open http://' + address, failure)
+            listener = socket.socket()
+            try:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                listener.bind((address, 80))
+                listener.listen(1)
+                listener.settimeout(1)
+                credentials = None
+                while credentials is None:
+                    feed_watchdog()
+                    try:
+                        client, _ = listener.accept()
+                    except OSError as error:
+                        if error.args[0] not in (11, 110, 116):
+                            raise
+                        continue
+                    try:
+                        credentials = setup_request(client, token)
+                    except OSError:
+                        # A phone may disconnect or time out mid-request.
+                        pass
+                    finally:
+                        client.close()
+                # Give the phone time to receive the response before dropping Wi-Fi.
+                feed_watchdog()
+                time.sleep_ms(300)
+            finally:
+                listener.close()
+        finally:
+            ap.active(False)
+        setup_screen(lcd, 'Testing Wi-Fi...')
+        try:
+            connect(wlan, credentials, lambda status: feed_watchdog())
+        except OSError:
+            failure = 'Join failed. Try again.'
+            continue
+        save_wifi(credentials)
+        setup_screen(lcd, 'Wi-Fi connected', 'Connecting to DrinkBuddy...')
+        return credentials
 
 
 class ButtonA:
@@ -454,11 +640,8 @@ class ButtonA:
 
 def main():
     global watchdog, activity, screen_button, screen_last_count, screen_last_press, battery_label
-    if (not isinstance(WIFI_SSID, str) or not WIFI_SSID or WIFI_SSID == 'YOUR_WIFI_NAME'
-            or not isinstance(WIFI_PASSWORD, str)
-            or not isinstance(PAIRING_KEY, str) or not PAIRING_KEY
-            or PAIRING_KEY == 'YOUR_PAIRING_KEY'):
-        raise timestamped_error('Set Wi-Fi and pairing values in pico_config.py on your Pico.')
+    if not isinstance(PAIRING_KEY, str) or len(PAIRING_KEY) != 43:
+        raise timestamped_error('Provision the pairing key in pico_config.py on your Pico.')
     if not isinstance(MESSAGE_URL, str) or not MESSAGE_URL.startswith('https://') or not MESSAGE_URL.endswith('/device/message'):
         raise timestamped_error('Set MESSAGE_URL to the HTTPS Device polling endpoint in pico_config.py.')
     if (type(POLL_SECONDS) is not int or POLL_SECONDS < 1
@@ -468,6 +651,7 @@ def main():
         raise timestamped_error('Check the timing settings in pico_config.py.')
     # Release GP22 before the startup delay, so an active-low interface is off.
     pulse_output = Pin(22, Pin.OPEN_DRAIN, value=1)
+    force_setup = Pin(14, Pin.IN, Pin.PULL_UP).value() == 0
     tilt_debug = getattr(pico_config, 'TILT_DEBUG', False)
     if tilt_debug:
         print('Tilt debug enabled. Watchdog is off.')
@@ -484,7 +668,6 @@ def main():
     battery_url = MESSAGE_URL[:-len('/message')] + '/battery'
     ota_key = getattr(pico_config, 'OTA_SIGNING_KEY', '')
     next_update_check = time.ticks_ms()
-    button = ButtonA(pulse_output)
     boot_id = binascii.hexlify(os.urandom(8)).decode()
     pending_event = None
     pending_battery = None
@@ -495,11 +678,15 @@ def main():
     lcd = LCD_1inch3()
     feed_watchdog()
     show_startup_logo(lcd)
+    wlan = network.WLAN(network.STA_IF)
+    credentials = load_wifi()
+    if credentials is None or force_setup:
+        credentials = provision_wifi(lcd, wlan)
+    button = ButtonA(pulse_output)
     screen_button = button
     screen_last_count = button.total
     screen_last_press = time.ticks_ms()
     draw(lcd)
-    wlan = network.WLAN(network.STA_IF)
     next_battery_check = time.ticks_ms()
     last_tilt_state = None
     while True:
@@ -511,7 +698,7 @@ def main():
         feed_watchdog()
         checking_press = False
         try:
-            connect(wlan, lambda status: wifi_indicator(lcd, status))
+            connect(wlan, credentials, lambda status: wifi_indicator(lcd, status))
             if time.ticks_diff(time.ticks_ms(), next_battery_check) >= 0:
                 next_battery_check = time.ticks_add(time.ticks_ms(), 3600000)
                 battery_label = read_battery(wlan)
@@ -519,7 +706,7 @@ def main():
                 battery_status = 'usb' if battery_label == 'USB POWER' else 'unavailable' if battery_label == 'BAT --' else 'battery'
                 battery_percentage = int(battery_label[5:-1]) if battery_status == 'battery' else None
                 pending_battery = {'event_id': boot_id + '-battery-' + str(battery_sequence), 'status': battery_status, 'percentage': battery_percentage}
-                connect(wlan, lambda status: wifi_indicator(lcd, status))
+                connect(wlan, credentials, lambda status: wifi_indicator(lcd, status))
             clock.sync()
             wifi_indicator(lcd, 'ON')
             if pending_event is not None:

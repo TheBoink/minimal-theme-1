@@ -13,7 +13,7 @@ class UserAdmin(UserAdminTemplate):
         self.add_button.enabled = False
         try:
             error = anvil.server.call('add_user', self.email_input.text or '', self.key_input.text or '')
-            self.status.text = error or 'User added. They can sign in using an email link and enter the pairing key.'
+            self.status.text = error or 'User added. Their DrinkBuddy will connect automatically after sign-in.'
             if not error:
                 self.email_input.text = ''
                 self.key_input.text = ''

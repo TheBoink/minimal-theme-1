@@ -7,11 +7,16 @@ import anvil.users
 class Form1(Form1Template):
     def __init__(self, **properties):
         super().__init__(**properties)
-        admin = anvil.server.call('is_admin')
-        self.users_button.visible = admin
-        self.pair_button.visible = admin
+        access = anvil.server.call('dashboard_access')
+        self._assigned_display = access['assigned']
+        self._needs_device = ('Enter a pairing key or create a DrinkBuddy.' if access['admin']
+                              else 'Ask your administrator to assign a DrinkBuddy.')
+        self.users_button.visible = access['admin']
+        self.pair_button.visible = access['admin']
+        self.key_box.visible = access['admin']
+        self.status.text = 'Connecting to your assigned DrinkBuddy…' if self._assigned_display else self._needs_device
         self.endpoint.text = anvil.server.get_app_origin() + '/device/message'
-        self._battery_chart_key = None
+        self._battery_chart_key = ''
         self.battery_chart.layout = {'paper_bgcolor': '#f5f3ed', 'plot_bgcolor': '#f5f3ed', 'margin': {'l': 50, 'r': 15, 't': 15, 'b': 90}, 'xaxis': {'title': 'Amsterdam time', 'type': 'category', 'tickangle': -45, 'nticks': 8}, 'yaxis': {'title': 'Battery (%)', 'range': [0, 100]}}
         self.box_chart.layout = {
             'barmode': 'group',
@@ -28,8 +33,14 @@ class Form1(Form1Template):
             'yaxis2': {'title': 'Estimated mL', 'overlaying': 'y', 'side': 'right', 'rangemode': 'tozero'},
             'legend': {'orientation': 'h', 'y': 1.12},
         }
-        self._settings_key = None
+        self._settings_key = ''
 
+
+    def _dashboard_key(self):
+        key = (self.key_box.text or '').strip()
+        if not key and self._assigned_display:
+            return None
+        return key
 
     @handle('users_button', 'click')
     def manage_users(self, **event_args):
@@ -51,10 +62,10 @@ class Form1(Form1Template):
 
     @handle('refresh_button', 'click')
     def refresh_status(self, **event_args):
-        if not self.key_box.text.strip():
-            self.status.text = 'Create or enter your pairing key first.'
+        if self._dashboard_key() == '':
+            self.status.text = self._needs_device
             return
-        result = anvil.server.call('display_status', self.key_box.text.strip())
+        result = anvil.server.call('display_status', self._dashboard_key())
         if not result['ok']:
             self.status.text = result['message']
             return
@@ -64,34 +75,38 @@ class Form1(Form1Template):
 
     @handle('button_timer', 'tick')
     def update_button_status(self, **event_args):
-        key = self.key_box.text.strip()
-        if not key:
+        key = self._dashboard_key()
+        if key == '':
             self.drink_schedule_input.text = ''
             self.limit_message_input.text = ''
             self.drink_progress_input.text = ''
             self.drink_checking_input.text = ''
-            self.drink_limits_status.text = 'Enter your pairing key to load drink limits.'
-            self.button_status.text = 'Waiting for button A… Enter your pairing key first.'
+            self.drink_limits_status.text = self._needs_device
+            self.button_status.text = self._needs_device
             self.box_chart.data = []
-            self.box_chart_status.text = 'Enter your pairing key to see daily box activity.'
+            self.box_chart_status.text = self._needs_device
             self.drink_chart.data = []
-            self.drink_chart_status.text = 'Enter your pairing key to see daily drink activity.'
+            self.drink_chart_status.text = self._needs_device
             self.battery_chart.data = []
-            self.battery_status.text = 'Enter your pairing key to see battery status.'
-            self._battery_chart_key = None
-            self._settings_key = None
-            self.firmware_running_label.text = 'Enter your pairing key to see the running firmware version.'
-            self.firmware_published_label.text = 'Enter your pairing key to see the publication time.'
+            self.battery_status.text = self._needs_device
+            self._battery_chart_key = ''
+            self._settings_key = ''
+            self.firmware_running_label.text = self._needs_device
+            self.firmware_published_label.text = self._needs_device
             self.waiting_message_input.text = ''
-            self.waiting_message_status.text = 'Enter your pairing key to load the waiting message.'
+            self.waiting_message_status.text = self._needs_device
             self.cooldown_input.text = ''
-            self.cooldown_status.text = 'Enter your pairing key to load the waiting period.'
+            self.cooldown_status.text = self._needs_device
             self.pulse_gap_input.text = ''
-            self.pulse_gap_status.text = 'Enter your pairing key to load the saved delay.'
+            self.pulse_gap_status.text = self._needs_device
             return
         self.button_timer.interval = 0
         try:
             result = anvil.server.call('display_status', key)
+            if key is None:
+                self.status.text = (
+                    'Pico online' if result['online'] else 'Pico offline / not connected'
+                ) if result['ok'] else result['message']
             if not result['ok']:
                 self.drink_schedule_input.text = ''
                 self.limit_message_input.text = ''
@@ -108,7 +123,7 @@ class Form1(Form1Template):
                     self.waiting_message_status.text = result['message']
                     self.cooldown_status.text = result['message']
                     self.pulse_gap_status.text = result['message']
-                    self._settings_key = None
+                    self._settings_key = ''
             elif self._settings_key != key:
                 self._settings_key = key
                 self.drink_schedule_input.text = result['drink_schedule']
@@ -141,8 +156,8 @@ class Form1(Form1Template):
 
     @handle('battery_timer', 'tick')
     def refresh_battery_chart(self, **event_args):
-        key = self.key_box.text.strip()
-        if not key:
+        key = self._dashboard_key()
+        if key == '':
             return
         self.battery_timer.interval = 0
         try:
@@ -168,7 +183,7 @@ class Form1(Form1Template):
 
     def refresh_box_chart(self, key):
         result = anvil.server.call('daily_box_activity', key)
-        if self.key_box.text.strip() != key:
+        if self._dashboard_key() != key:
             return
         if not result['ok']:
             self.box_chart.data = []
@@ -186,7 +201,7 @@ class Form1(Form1Template):
 
     def refresh_drink_chart(self, key):
         result = anvil.server.call('daily_drink_activity', key)
-        if self.key_box.text.strip() != key:
+        if self._dashboard_key() != key:
             return
         if not result['ok']:
             self.drink_chart.data = []
@@ -208,10 +223,10 @@ class Form1(Form1Template):
 
     @handle('pulse_gap_save', 'click')
     def save_pulse_gap(self, **event_args):
-        key = (self.key_box.text or '').strip()
+        key = self._dashboard_key()
         text = (self.pulse_gap_input.text or '').strip()
-        if not key:
-            self.pulse_gap_status.text = 'Enter your pairing key first.'
+        if key == '':
+            self.pulse_gap_status.text = self._needs_device
             return
         if not text.isdigit() or len(text) > 4 or int(text) > 5000:
             self.pulse_gap_status.text = 'Enter a whole number from 0 to 5000 milliseconds.'
@@ -229,10 +244,10 @@ class Form1(Form1Template):
 
     @handle('cooldown_save', 'click')
     def save_cooldown(self, **event_args):
-        key = (self.key_box.text or '').strip()
+        key = self._dashboard_key()
         text = (self.cooldown_input.text or '').strip()
-        if not key:
-            self.cooldown_status.text = 'Enter your pairing key first.'
+        if key == '':
+            self.cooldown_status.text = self._needs_device
             return
         if not text.isdigit() or len(text) > 4 or int(text) > 1440:
             self.cooldown_status.text = 'Enter a whole number from 0 to 1440 minutes.'
@@ -248,9 +263,9 @@ class Form1(Form1Template):
 
     @handle('waiting_message_save', 'click')
     def save_waiting_message(self, **event_args):
-        key = (self.key_box.text or '').strip()
-        if not key:
-            self.waiting_message_status.text = 'Enter your pairing key first.'
+        key = self._dashboard_key()
+        if key == '':
+            self.waiting_message_status.text = self._needs_device
             return
         self.waiting_message_save.enabled = False
         try:
@@ -263,10 +278,10 @@ class Form1(Form1Template):
 
     @handle('firmware_publish', 'click')
     def publish_firmware(self, **event_args):
-        key = (self.key_box.text or '').strip()
+        key = self._dashboard_key()
         signing_key = self.firmware_key.text or ''
-        if not key:
-            self.firmware_status.text = 'Enter your pairing key first.'
+        if key == '':
+            self.firmware_status.text = self._needs_device
             return
         if self.firmware_file.file is None:
             self.firmware_status.text = 'Choose a firmware file first.'
@@ -286,7 +301,7 @@ class Form1(Form1Template):
 
     @handle('drink_limits_save', 'click')
     def save_drink_limits(self, **event_args):
-        key = self.key_box.text.strip()
+        key = self._dashboard_key()
         self.drink_limits_save.enabled = False
         try:
             result = anvil.server.call('set_drink_limits', key, self.drink_schedule_input.text or '',

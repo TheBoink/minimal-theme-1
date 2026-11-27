@@ -20,6 +20,24 @@ requests and ntptime on the Pico, and save Waveshare's Pico-LCD-1.3 MicroPython
 sample as lcd_driver.py. In the published app, create a display and copy its
 private pairing key and complete Device polling endpoint into pico_config.py.
 
+FIRST-TIME WI-FI FROM A PHONE
+
+1. Provision MESSAGE_URL and PAIRING_KEY in the private pico_config.py and leave
+   WIFI_SSID and WIFI_PASSWORD blank. Install pico_app.py with the recovery
+   loader and start the device. The pairing key stays on the Pico.
+2. On the phone, join the DrinkBuddy network shown on the LCD with its setup
+   password. Stay connected if the phone says there is no internet.
+3. In your browser, open the exact http:// address shown on the LCD. Enter the
+   name and password of your 2.4 GHz Wi-Fi network and select Connect.
+4. Watch the LCD. If joining fails, rejoin the same setup hotspot and try again.
+   After a successful join the Pico saves the Wi-Fi settings and starts syncing
+   with Anvil. The DrinkBuddy dashboard should then show Pico online.
+
+To change networks, hold the external GP14 button while powering on, then
+release it when setup appears. The previous Wi-Fi settings are kept until a
+new network successfully joins. The Pico keeps those settings in the private
+wifi_settings.json file. The setup page does not ask for the Anvil pairing key.
+
 After restarting, the LCD should show the Amsterdam clock and the previous
 three days' activity. Press the external button and check that the app's count
 and chart update. Both the Pico and app must use the same pairing key.
@@ -31,7 +49,7 @@ put real credentials in the app's downloadable template or share them in chat.
 Troubleshooting:
 - No module named pico_config: save pico_config.py to the Pico, next to main.py.
 - ImportError for a config name: copy the complete template and add your values.
-- Configuration error: check the four values, especially the full HTTPS URL.
+- Configuration error: check the pairing key and full HTTPS URL.
 - No module named requests, ntptime or lcd_driver: install/save it on the Pico.
 - Pairing key rejected: use the same existing key in the Pico config and app.
 - HTTP 404: copy the complete polling endpoint from the published app.

@@ -55,6 +55,8 @@ def _dashboard_device(key):
     user = anvil.users.get_user()
     if user is None or user['enabled'] is not True:
         return None
+    if key is None:
+        return user['display']
     display = _device(key)
     if user['is_admin'] is True or display == user['display']:
         return display
@@ -64,6 +66,15 @@ def _dashboard_device(key):
 @anvil.server.callable(require_user=True)
 def is_admin() -> bool:
     return _is_admin(anvil.users.get_user())
+
+
+@anvil.server.callable(require_user=True)
+def dashboard_access() -> dict[str, bool]:
+    user = anvil.users.get_user()
+    return {
+        'admin': _is_admin(user),
+        'assigned': user is not None and user['enabled'] is True and user['display'] is not None,
+    }
 
 
 @anvil.server.callable(require_user=_is_admin)
@@ -97,7 +108,8 @@ def create_display():
 def display_status(key):
     row = _dashboard_device(key)
     if row is None:
-        return {'ok': False, 'message': 'Pairing key not recognised.'}
+        return {'ok': False, 'message': 'No DrinkBuddy is assigned to this account.' if key is None
+                else 'Pairing key not recognised.'}
     seen = row['last_seen']
     return {'ok': True, 'online': bool(seen and seen > datetime.now(timezone.utc) - timedelta(seconds=20)),
             'message': row['message'], 'revision': row['revision'],

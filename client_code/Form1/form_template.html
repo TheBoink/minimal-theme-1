@@ -13,13 +13,10 @@
       <div>
         <p class="display-kicker">01 / Connect to your Drink Buddy</p>
         <h2>Make the connection.</h2>
-        <p>
-          Create a pairing key, or paste one you saved earlier. Keep it private:
-          it controls the Drink Buddy. Save it before closing this page.
-        </p>
+        <p>Your assigned DrinkBuddy connects automatically after sign-in.</p>
       </div>
       <div>
-        <anvil-component type="TextBox" name="key_box" prop:placeholder="Your private pairing key"></anvil-component>
+        <anvil-component type="TextBox" name="key_box" prop:visible="false" prop:placeholder="Enter a pairing key to switch devices"></anvil-component>
         <anvil-component type="Button" name="refresh_button" prop:text="Check connection" prop:role="secondary-button" prop:align="right"></anvil-component>
         <anvil-component type="Button" name="pair_button" prop:text="Create a new Drink Buddy" prop:role="secondary-button" prop:align="right" prop:bold="false"></anvil-component>
         <anvil-component type="Label" name="status" prop:text="Ready to pair · No Drink Buddy connected" prop:align="right"></anvil-component>
@@ -33,14 +30,14 @@
       </p>
       <anvil-component type="TextBox" name="pulse_gap_input" prop:placeholder="500"></anvil-component>
       <anvil-component type="Button" name="pulse_gap_save" prop:text="Save pulse delay" prop:role="secondary-button"></anvil-component>
-      <anvil-component type="Label" name="pulse_gap_status" prop:text="Enter your pairing key to load the saved delay."></anvil-component>
+      <anvil-component type="Label" name="pulse_gap_status"></anvil-component>
       <h2>Waiting period between drinks</h2>
       <p class="display-note">
         Minutes after an action before the next one is allowed (0–1440).
       </p>
       <anvil-component type="TextBox" name="cooldown_input" prop:placeholder="0"></anvil-component>
       <anvil-component type="Button" name="cooldown_save" prop:text="Save waiting period" prop:role="secondary-button"></anvil-component>
-      <anvil-component type="Label" name="cooldown_status" prop:text="Enter your pairing key to load the waiting period."></anvil-component>
+      <anvil-component type="Label" name="cooldown_status"></anvil-component>
       <h2>Waiting message on the LCD</h2>
       <p class="display-note">
         Use {minutes} where the remaining minutes should appear. Use basic
@@ -48,7 +45,7 @@
       </p>
       <anvil-component type="TextArea" name="waiting_message_input"></anvil-component>
       <anvil-component type="Button" name="waiting_message_save" prop:text="Save waiting message" prop:role="secondary-button"></anvil-component>
-      <anvil-component type="Label" name="waiting_message_status" prop:text="Enter your pairing key to load the waiting message."></anvil-component>
+      <anvil-component type="Label" name="waiting_message_status"></anvil-component>
       <h2>Daily drink limits</h2>
       <p class="display-note">
         Amsterdam time. Enter one period per line, for example 08:00-15:00 0.
@@ -77,7 +74,7 @@
     <section class="display-compose">
       <h2>Daily box activity</h2>
       <p class="display-note">Daily door openings and tilts over the last 14 calendar days in Amsterdam time, including today.</p>
-      <anvil-component type="Label" name="box_chart_status" prop:text="Enter your pairing key to see daily box activity."></anvil-component>
+      <anvil-component type="Label" name="box_chart_status"></anvil-component>
       <anvil-component type="Plot" name="box_chart" prop:height="340"></anvil-component>
     </section>
     <section class="display-compose">
@@ -86,7 +83,7 @@
         Last 14 calendar days in Amsterdam time, including today.
         Estimated volume is the sum of recorded drink delays divided by 75.
       </p>
-      <anvil-component type="Label" name="drink_chart_status" prop:text="Enter your pairing key to see daily drink activity."></anvil-component>
+      <anvil-component type="Label" name="drink_chart_status"></anvil-component>
       <anvil-component type="Plot" name="drink_chart" prop:height="360"></anvil-component>
     </section>
     <section class="display-compose">
@@ -95,14 +92,14 @@
         Approximate battery readings received during the last 24 hours, in
         Amsterdam time.
       </p>
-      <anvil-component type="Label" name="battery_status" prop:text="Enter your pairing key to see battery status."></anvil-component>
+      <anvil-component type="Label" name="battery_status"></anvil-component>
       <anvil-component type="Plot" name="battery_chart" prop:height="320"></anvil-component>
       <anvil-component type="Timer" name="battery_timer" prop:interval="30"></anvil-component>
     </section>
     <section class="display-compose">
       <h2>Pico firmware update</h2>
-      <anvil-component type="Label" name="firmware_running_label" prop:text="Enter your pairing key to see the running firmware version."></anvil-component>
-      <anvil-component type="Label" name="firmware_published_label" prop:text="Enter your pairing key to see the publication time."></anvil-component>
+      <anvil-component type="Label" name="firmware_running_label"></anvil-component>
+      <anvil-component type="Label" name="firmware_published_label"></anvil-component>
       <p class="display-note">
         Choose the updated pico_app.py and enter the Pico's private update
         signing key.
